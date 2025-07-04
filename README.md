@@ -4,14 +4,14 @@ This repository contains the implementation of a Hierarchical Attention Network 
 
 ## Dataset and Features
 
-The dataset covers daily observations starting from January 2010, including:
+The dataset covers daily observations starting from January 2010, including (with sources): 
 
-* Ethanol volume (demand proxy)
-* Corn prices (feedstock cost)
-* Brent crude oil prices (energy benchmark)
-* Foreign exchange rates (FX)
-* Producer price index (PPI)
-* Market closed indicator (binary flag)
+* Ethanol volume (demand proxy): _https://www.barchart.com/futures/quotes/D2N25_
+* Corn prices (feedstock cost): _https://www.barchart.com/futures/quotes/ZCN25_
+* Brent crude oil prices (energy benchmark): _https://www.barchart.com/stocks/quotes/WTI_
+* Foreign exchange rates (FX): _https://www.investing.com/currencies/usd-brl-historical-data_
+* Producer price index (US) (PPI): _https://fred.stlouisfed.org/series/WPU06140341_
+* Market closed indicator (binary flag): self implemented 
 
 Additionally, engineered calendar features are included to capture cyclical temporal patterns:
 
