@@ -26,31 +26,6 @@ The model consists of stacked recurrent LSTM blocks operating at three hierarchi
 1. **Daily Level**: Input data passes through feature-level attention (highlighting important input variables each day), followed by a daily LSTM layer producing daily hidden states.
 2. **Weekly Level**: Daily hidden states are compressed via temporal attention into weekly embeddings, which feed into a weekly LSTM.
 3. **Monthly Level**: Weekly hidden states undergo a second round of temporal attention, forming monthly embeddings for the final monthly LSTM.
-
-flowchart TD
-    %% Input block with multi-line label rendered via <br/>
-    subgraph INPUT["Multivariate&nbsp;Input"]
-        X[Ethanol<br/>Ethanol_volume<br/>Corn<br/>Brent<br/>FX<br/>PPI<br/>Market_closed<br/>Calendar&nbsp;feats]
-    end
-
-    subgraph DAILY["Daily&nbsp;Block"]
-        FA[Feature&nbsp;Attention]
-        DLSTM[Daily&nbsp;LSTM
-(14‑day&nbsp;window)]
-    end
-
-    subgraph WEEKLY["Weekly&nbsp;Block"]
-        DA[Temporal&nbsp;Attention<br/>Day&nbsp;→&nbsp;Week]
-        WLSTM[Weekly&nbsp;LSTM]
-    end
-
-    subgraph MONTHLY["Monthly&nbsp;Block"]
-        WA[Temporal&nbsp;Attention<br/>Week&nbsp;→&nbsp;Month]
-        MLSTM[Monthly&nbsp;LSTM]
-        HEAD[Prediction&nbsp;Head]
-    end
-
-    X --> FA --> DLSTM --> DA --> WLSTM --> WA --> MLSTM --> HEAD
     
 ## Research Foundations and Inspiration
 
