@@ -27,33 +27,33 @@ The model consists of stacked recurrent LSTM blocks operating at three hierarchi
 2. **Weekly Level**: Daily hidden states are compressed via temporal attention into weekly embeddings, which feed into a weekly LSTM.
 3. **Monthly Level**: Weekly hidden states undergo a second round of temporal attention, forming monthly embeddings for the final monthly LSTM.
 
-   flowchart TD
-    subgraph INPUT["Multivariate Input"]
-        X[ethanol, ethanol_volume, corn,<br> brent, fx, ppi,<br>market_closed,<br>calendar features]
-    end
-
-    subgraph DAILY["Daily Block"]
-        FA[Feature-level Attention]<br>
-        DLSTM[Daily LSTM - 14-day sequences]
-    end
-
-    subgraph WEEKLY["Weekly Block"]
-        DA[Temporal Attention (Daily-to-Weekly)]<br>
-        WLSTM[Weekly LSTM]
-    end
-
-    subgraph MONTHLY["Monthly Block"]
-        WA[Temporal Attention (Weekly-to-Monthly)]<br>
-        MLSTM[Monthly LSTM]<br>
-        HEAD[Prediction Head]
-    end
-
-    X --> FA --> DLSTM --> DA --> WLSTM --> WA --> MLSTM --> HEAD
-
-    style INPUT fill:#0d1117,stroke:#58a6ff,stroke-width:1px,color:#c9d1d9
-    style DAILY fill:#161b22,stroke:#3fb950,stroke-width:1px,color:#c9d1d9
-    style WEEKLY fill:#0d1117,stroke:#58a6ff,stroke-width:1px,color:#c9d1d9
-    style MONTHLY fill:#161b22,stroke:#3fb950,stroke-width:1px,color:#c9d1d9
+flowchart TD
+   subgraph INPUT["Multivariate Input"]
+     X[ethanol, ethanol_volume, corn,<br> brent, fx, ppi,<br>market_closed,<br>calendar features]
+   end
+   
+   subgraph DAILY["Daily Block"]
+     FA[Feature-level Attention]<br>
+     DLSTM[Daily LSTM - 14-day sequences]
+   end
+   
+   subgraph WEEKLY["Weekly Block"]
+     DA[Temporal Attention (Daily-to-Weekly)]<br>
+     WLSTM[Weekly LSTM]
+   end
+   
+   subgraph MONTHLY["Monthly Block"]
+     WA[Temporal Attention (Weekly-to-Monthly)]<br>
+     MLSTM[Monthly LSTM]<br>
+     HEAD[Prediction Head]
+   end
+   
+   X --> FA --> DLSTM --> DA --> WLSTM --> WA --> MLSTM --> HEAD
+   
+   style INPUT fill:#0d1117,stroke:#58a6ff,stroke-width:1px,color:#c9d1d9
+   style DAILY fill:#161b22,stroke:#3fb950,stroke-width:1px,color:#c9d1d9
+   style WEEKLY fill:#0d1117,stroke:#58a6ff,stroke-width:1px,color:#c9d1d9
+   style MONTHLY fill:#161b22,stroke:#3fb950,stroke-width:1px,color:#c9d1d9
 
 ## Research Foundations and Inspiration
 
