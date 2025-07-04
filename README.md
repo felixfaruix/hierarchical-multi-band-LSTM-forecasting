@@ -28,34 +28,26 @@ The model consists of stacked recurrent LSTM blocks operating at three hierarchi
 3. **Monthly Level**: Weekly hidden states undergo a second round of temporal attention, forming monthly embeddings for the final monthly LSTM.
 
 flowchart TD
-    subgraph INPUT["Multivariate Input"]
-        X[Ethanol
-Ethanol_volume
-Corn
-Brent
-FX
-PPI
-Market_closed
-Calendar feats]
+    %% Input block with multi-line label rendered via <br/>
+    subgraph INPUT["Multivariate&nbsp;Input"]
+        X[Ethanol<br/>Ethanol_volume<br/>Corn<br/>Brent<br/>FX<br/>PPI<br/>Market_closed<br/>Calendar&nbsp;feats]
     end
 
-    subgraph DAILY["Daily Block"]
-        FA[Feature Attention]
-        DLSTM[Daily LSTM
-(14‑day window)]
+    subgraph DAILY["Daily&nbsp;Block"]
+        FA[Feature&nbsp;Attention]
+        DLSTM[Daily&nbsp;LSTM
+(14‑day&nbsp;window)]
     end
 
-    subgraph WEEKLY["Weekly Block"]
-        DA[Temporal Attention
-Day → Week]
-        WLSTM[Weekly LSTM]
+    subgraph WEEKLY["Weekly&nbsp;Block"]
+        DA[Temporal&nbsp;Attention<br/>Day&nbsp;→&nbsp;Week]
+        WLSTM[Weekly&nbsp;LSTM]
     end
 
-    subgraph MONTHLY["Monthly Block"]
-        WA[Temporal Attention
-Week → Month]
-        MLSTM[Monthly LSTM]
-        HEAD[Prediction Head]
+    subgraph MONTHLY["Monthly&nbsp;Block"]
+        WA[Temporal&nbsp;Attention<br/>Week&nbsp;→&nbsp;Month]
+        MLSTM[Monthly&nbsp;LSTM]
+        HEAD[Prediction&nbsp;Head]
     end
 
     X --> FA --> DLSTM --> DA --> WLSTM --> WA --> MLSTM --> HEAD
