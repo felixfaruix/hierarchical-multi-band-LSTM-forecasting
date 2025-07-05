@@ -19,7 +19,7 @@ Additionally, engineered calendar features are included to capture cyclical temp
 * Week-of-month indicator
 * End-of-month binary flag (`is_eom`)
 
-## Model Architecture (`model.py`)
+## Model Architecture
 
 The model consists of stacked recurrent LSTM blocks operating at three hierarchical time scales:
 
