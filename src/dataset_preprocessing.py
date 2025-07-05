@@ -123,3 +123,11 @@ def summarize(df_scaled: pd.DataFrame) -> None:
         {df_scaled.filter(like='_scaled').iloc[:, :5].describe().loc[['min','max']]}
         """)
     )
+
+if __name__ == "__main__":
+    calendar = build_calendar(start_date)
+    merged = merge_all_data(calendar, files)
+    merged = fill_and_mask(merged, daily_columns, price_columns_for_mask)
+    merged_scaled, scaler = scale_features(merged.copy(), feature_cols=daily_columns)
+    save_outputs(merged, merged_scaled, scaler)
+    summarize(merged_scaled)
