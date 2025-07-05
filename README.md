@@ -29,12 +29,21 @@ The model consists of stacked recurrent LSTM blocks operating at three hierarchi
 
 ### Attention, Pooling, and Lookback Memory (`timeseries_datamodule.py`)
 
-The model uses a sliding window approach, enabling faster computation and  better handling of concept drifts by continuously updating the model with recent data (Zliobaite et al., 2016). It has a 1-year historical lookback tensor (365 days). This memory allows attention layers to effectively utilize historical context, enriching the information passed to weekly and monthly blocks.
+The model uses a **sliding window approach**, enabling faster computation and  better handling of concept drifts by continuously updating the model with recent data (*Zliobaite et al., 2016*). It has a **1-year historical lookback tensor** (365 days). This memory allows attention layers to effectively utilize historical context, enriching the information passed to weekly and monthly blocks.
 
-Inspired by Rangapuram et al. (2023), the cross-scale attention mechanism enables to use shorter sliding windows compared to plain transformers, though not less than one full seasonal cycle (16 weeks for weekly, 12 months for monthly). In this way we enrich with much more seasonality pattern information. 
+Inspired by *Rangapuram et al. (2023)*, the cross-scale attention mechanism enables to use shorter sliding windows compared to plain transformers, though not less than one full seasonal cycle (16 weeks for weekly, 12 months for monthly). In this way we enrich with much more seasonality pattern information. 
 
 No traditional warm-up periods were implemented since the comprehensive year lookback already gives enough context for immediate monthly-level forecasting.
 
+## Data Splitting and Handling
+
+We split the dataset chronologically into training, validation, and test sets:
+
+* **Training Set**: January 2010 to December 2021
+* **Validation Set**: January 2022 to December 2022
+* **Test Set**: January 2023 onwards
+
+Training samples are shuffled to enhance gradient descent optimization, ensuring stable and robust learning. Validation and test sets are not shuffled to maintain chronological order, essential for accurate performance evaluation.
 
 ## Research Foundations and Inspiration
 
