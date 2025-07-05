@@ -45,13 +45,13 @@ def build_calendar_df(start_date: str ="2010-01-01", end_date: str ="2030-12-31"
     
     # Day-of-week (0–6, Monday = 0) 
     days = df["date"].dt.dayofweek  # Monday = 0
-    df["dow_sin"] = np.sin(2 * np.pi * days / 7)
-    df["dow_cos"] = np.cos(2 * np.pi * days / 7)
+    df["days_sin"] = np.sin(2 * np.pi * days / 7)
+    df["days_cos"] = np.cos(2 * np.pi * days / 7)
 
     # Month-of-year (1–12)
     months = df["date"].dt.month
-    df["mon_sin"] = np.sin(2 * np.pi * months / 12)
-    df["mon_cos"] = np.cos(2 * np.pi * months / 12)
+    df["months_sin"] = np.sin(2 * np.pi * months / 12)
+    df["months_cos"] = np.cos(2 * np.pi * months / 12)
 
     # Week of month (1–5)
     df["week_of_month"] = df["date"].apply(weeks_of_month)
@@ -65,5 +65,5 @@ def build_calendar_df(start_date: str ="2010-01-01", end_date: str ="2030-12-31"
     df["is_eom"] = eom_flags.any(axis=1).astype(int)
     return df.drop(columns=["is_month_end"])
 
-calendar = build_calendar_df()
-calendar.to_parquet("calendar.parquet")
+cyclical_calendar = build_calendar_df()
+cyclical_calendar.to_parquet("cyclical_calendar.parquet")

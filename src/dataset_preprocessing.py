@@ -7,10 +7,8 @@ Outputs:
 - calendar.parquet: Cleaned daily time series with all features
 - calendar_scaled.parquet: Scaled version for LSTM input
 - feature_scaler.pkl: Saved scaler for inverse transformation
-
-Author: Felice Faruolo (VU Amsterdam)
-Repository: https://github.com/felixfaruix/ethanol-hierarchical-multi-band-LSTM.git
 """
+
 from typing  import List, Dict, Tuple
 from pathlib import Path
 from sklearn.preprocessing import MinMaxScaler
@@ -82,8 +80,8 @@ def fill_and_mask(calendar: pd.DataFrame, daily_columns: List[str], mask_columns
 
 def scale_features(df: pd.DataFrame, feature_cols: List[str]) -> Tuple[pd.DataFrame, MinMaxScaler]:
     """
-    Scales selected feature columns to [0, 1] using MinMaxScaler.
-    This is important for models that are sensitive to feature scales
+    Scales selected feature columns to [0, 1] using MinMaxScaler, and returns the scaled DataFrame and the scaler.
+    It also adds 'date' and 'market_closed' columns to the scaled DataFrame. 
     """
     scaler = MinMaxScaler()
     scaled_values = scaler.fit_transform(df[feature_cols])
@@ -103,6 +101,7 @@ def save_outputs(df_raw: pd.DataFrame, df_scaled: pd.DataFrame, scaler: MinMaxSc
         df_scaled (pd.DataFrame): Normalized data.
         scaler (MinMaxScaler): Trained scaler for future inverse transformations.
     """
+    # Saving the scaler to a pickle file for later use
     with open(processed_data / "feature_scaler.pkl", "wb") as f:
         pkl.dump(scaler, f)
     print(f"Saved feature scaler to: {processed_data / 'feature_scaler.pkl'}")
