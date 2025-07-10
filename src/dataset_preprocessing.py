@@ -1,7 +1,7 @@
 """
 This script loads multiple financial time series (ethanol, corn, FX, PPI, Brent),
-cleans and aligns them to daily frequency, handles missing data, scales the features,
-and outputs both raw and normalized versions for modeling.
+cleans and aligns them to daily frequency, handles missing data, **adds lag / return
+features**, scales the features, and outputs both raw and normalized versions for modeling.
 
 Outputs:
 - calendar.parquet: Cleaned daily time series with all features
@@ -15,12 +15,17 @@ from sklearn.preprocessing import MinMaxScaler
 import pandas as pd, numpy as np, textwrap
 import pickle as pkl
 
+from sympy import series
+
 file_root = Path(__file__).resolve().parent
 project_root = file_root.parent
 raw_data_path: Path = project_root / "raw_data"
 processed_data: Path = project_root / "processed_data"
 processed_data.mkdir(exist_ok=True)
 start_date: str = "2010-01-01"
+lags_list= ["ethanol", "corn", "brent", "fx"]
+lags= (7, 30)
+return_bool= True
 
 # Dictionary to hold file configurations
 # Each key corresponds to a feature, with its date column, price column, filename, and date format
@@ -78,6 +83,36 @@ def fill_and_mask(calendar: pd.DataFrame, daily_columns: List[str], mask_columns
     calendar = calendar.dropna(subset=daily_columns)
     return calendar
 
+lags_list= ["ethanol", "corn", "brent", "fx"]
+lags= (7, 30)
+return_bool= True
+
+def lag_returns(df: pd.DataFrame, cols: List[str], lags: Tuple[int, ...], return_bool: bool = True) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    Adds lagged level features for the specified lags and 1-day log returns
+    for every column in `cols`. Returns the updated DataFrame and a list of
+    new column names added.
+    """
+    new_cols: List[str] = []
+
+    for col in cols:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+        # lagged levels
+        for l in lags:
+            lag_col = f"{col}_lag_{l}"
+            df[lag_col] = df[col].shift(l)
+            new_cols.append(lag_col)
+
+        # 1-day log return
+        if return_bool:
+            ret_col = f"{col}_log_ret_1"
+            series      = df[col]
+            log_series  = np.log(series)
+            df[ret_col] = log_series.diff()  # type: ignore[attr-defined]
+            new_cols.append(ret_col)
+
+    return df, new_cols
+
 def scale_features(df: pd.DataFrame, feature_cols: List[str]) -> Tuple[pd.DataFrame, MinMaxScaler]:
     """
     Scales selected feature columns to [0, 1] using MinMaxScaler, and returns the scaled DataFrame and the scaler.
@@ -125,9 +160,15 @@ def summarize(df_scaled: pd.DataFrame) -> None:
     )
 
 if __name__ == "__main__":
+
     calendar = build_calendar(start_date)
     merged = merge_all_data(calendar, files)
     merged = fill_and_mask(merged, daily_columns, price_columns_for_mask)
-    merged_scaled, scaler = scale_features(merged.copy(), feature_cols=daily_columns)
+    merged, new_feature_cols = lag_returns(merged, cols=lags_list, lags=lags, return_bool=return_bool)
+
+    # Update feature list with newly created columns
+    daily_columns_extended = daily_columns + new_feature_cols
+
+    merged_scaled, scaler = scale_features(merged.copy(), feature_cols=daily_columns_extended)
     save_outputs(merged, merged_scaled, scaler)
     summarize(merged_scaled)
