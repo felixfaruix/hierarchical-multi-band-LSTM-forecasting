@@ -26,8 +26,7 @@ def load_parquet(obj: Union[str, Path, pd.DataFrame]) -> pd.DataFrame:
         raise FileNotFoundError(obj)
     return pd.read_parquet(obj)
 
-def merge_calendars(calendar_scaled: Union[str, Path, pd.DataFrame], 
-                    cyclical_calendar: Union[str, Path, pd.DataFrame] = "cyclical_calendar.parquet",*, 
+def merge_calendars(calendar_scaled: Union[str, Path, pd.DataFrame], cyclical_calendar: Union[str, Path, pd.DataFrame] = "cyclical_calendar.parquet",*, 
                     date_column: str = "date", how: Literal["left", "right", "outer", "inner", "cross"] = "left") -> pd.DataFrame:
     """
     This function merges a scaled calendar DataFrame with a cyclical calendar DataFrame on the specified date column.
@@ -62,8 +61,8 @@ class RollingOrigin(Dataset):
     """
     def __init__(self, df: pd.DataFrame, features: List[str]):
         self.df = df.reset_index(drop=True)
-        self.X  = self.df[features].to_numpy("float32")
-        self.y  = self.df[target_variable].to_numpy("float32")
+        self.X = self.df[features].to_numpy("float32")
+        self.y = self.df[target_variable].to_numpy("float32")
         self.first_origin = lookback_days 
         self.last_origin = len(df) - (daily_window + monthly_horizon)
 
