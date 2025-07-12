@@ -16,6 +16,7 @@ import pandas as pd, numpy as np, textwrap
 import pickle as pkl
 from dateutil.easter import easter
 
+verbose = False
 file_root = Path(__file__).resolve().parent
 project_root = file_root.parent
 raw_data_path: Path = project_root / "raw_data"
@@ -25,7 +26,6 @@ start_date: str = "2010-01-01"
 lags_list= ["ethanol", "corn", "brent", "fx"]
 lags= (7, 30)
 return_bool= True
-
 
 # Dictionary to hold file configurations
 # Each key corresponds to a feature, with its date column, price column, filename, and date format
@@ -215,9 +215,9 @@ def summarize(df_scaled: pd.DataFrame) -> None:
     """
     print(
         textwrap.dedent(f"""
-        ─ Calendar Scaled:
-        Shape        : {df_scaled.shape}   (rows, cols)
-        Date range   : {df_scaled['date'].min().date()} → {df_scaled['date'].max().date()}
+        **Calendar Scaled**
+        Shape: {df_scaled.shape}   (rows, cols)
+        Date range: {df_scaled['date'].min().date()} → {df_scaled['date'].max().date()}
         Market Closed: {df_scaled['market_closed'].value_counts().to_dict()}
         Summary (first 5 scaled cols)
         {df_scaled.filter(like='_scaled').iloc[:, :5].describe().loc[['min','max']]}
@@ -225,14 +225,12 @@ def summarize(df_scaled: pd.DataFrame) -> None:
 
 if __name__ == "__main__":
     """
-    Preprocessing pipeline with feature engineering
+    Preprocessing pipeline with feature engineering and leakage-free scaling
     """
     # 1. Load and merge raw data files into a calendar DataFrame
     calendar = build_calendar(start_date)
-
     # 2. Merge all data files into the calendar DataFrame
     merged = merge_all_data(calendar, files)
-
     # 3. Fill missing values and mask non-trading days
     #    - Forward-fill daily series (ethanol, corn, fx, brent)
     merged = fill_and_mask(merged, daily_columns, price_columns_for_mask)
@@ -240,28 +238,33 @@ if __name__ == "__main__":
     # 4. Add event window flags
     #    - Christmas to New Year, Easter, Driving season, Corn harvest
     merged = event_window_flag(merged)
-
     # 5. Add lagged features and returns
     #    - Lagged levels and 1-day log returns for ethanol, corn, br
     merged, new_feature_cols = lag_returns(merged, columns=lags_list, lags=lags, return_bool=return_bool)
-    print(merged[["ethanol", "ethanol_lag_7", "ethanol_lag_30"]].tail(15))
     # 6. Add rolling statistics and spreads
     #    - 30-day rolling mean & std, 90-day z-score for ethanol
     merged, new_feature_cols_rolling = rolling_stats_and_spread(merged)
-
     # 7. Scaling the features
     # We extend the daily_columns with the new feature columns and rolling stats
     daily_columns_extended = (daily_columns + new_feature_cols + new_feature_cols_rolling)
     merged.dropna(subset=daily_columns_extended, inplace=True)
     bad = merged[daily_columns_extended].isna().sum()
     print(bad[bad > 0])
-
-    # 8. Scale the features using MinMaxScaler
-    #    - Scale all daily columns and new features to [0, 1]
-    merged_scaled, scaler = scale_features(merged.copy(), feature_cols=daily_columns_extended)
-    merged.dropna(subset=daily_columns_extended, inplace=True)
-    # 9. Save the outputs
-    #    - Save the raw calendar DataFrame, scaled DataFrame, and scaler
+    # 8. Scale the features
+    # We use MinMaxScaler to scale the features to [0, 1]
+    # We fit the scaler only on the training slice of the data
+    # This is important to avoid data leakage from future values
+    train_mask = merged["date"] < pd.to_datetime(start_date)
+    # Fit scaler only on training slice
+    scaler = MinMaxScaler().fit(merged.loc[train_mask, daily_columns_extended])
+    # Transform the entire DataFrame with that single scaler
+    scaled_values = scaler.transform(merged[daily_columns_extended])
+    merged_scaled = pd.DataFrame(scaled_values, columns=[f"{c}_scaled" for c in daily_columns_extended], index=merged.index)
+    # Concatenate meta-columns
+    meta_cols = ["date", "market_closed"] + [col for col in merged.columns if col.startswith("event_")]
+    merged_scaled = pd.concat([merged[meta_cols], merged_scaled], axis=1)
+    # 8. Save the outputs
     save_outputs(merged, merged_scaled, scaler)
-
-    summarize(merged_scaled)
+    if verbose:
+        summarize(merged_scaled)
+        

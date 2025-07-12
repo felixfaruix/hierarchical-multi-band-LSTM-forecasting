@@ -126,7 +126,7 @@ def build_loaders(df: pd.DataFrame, batch_size: int = batch_size) -> Tuple[DataL
     # The DataLoader will shuffle the training data, but not the validation and test data
     # drop_last=True ensures that the last incomplete batch is dropped
     # This is important for training, as it ensures that all batches have the same size
-    train_loader = DataLoader(train_ds, batch_size, shuffle=True, drop_last=True)
+    train_loader = DataLoader(train_ds, batch_size, shuffle=False, drop_last=True)
     valid_loader = DataLoader(val_ds, batch_size, shuffle=False, drop_last=True)
     test_loader = DataLoader(test_ds, batch_size, shuffle=False, drop_last=True)
     return train_loader, valid_loader, test_loader
