@@ -22,7 +22,7 @@ Example Usage:
     >>> from model import HierForecastNet
     >>> 
     >>> # Initialize model
-    >>> model = HierForecastNet(in_f=10, hid=128, p=0.1)
+    >>> model = HierForecastNet(input_features=10, hidden_dim=128, dropout_rate=0.1)
     >>> 
     >>> # Create sample inputs
     >>> batch_size = 32
