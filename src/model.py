@@ -16,22 +16,6 @@ The model is divided into several components:
 
 Between the components, there are utility layers like `PreNormRes` for residual connections 
 with layer normalization, and `GLUffn` for feed-forward networks with gated linear units.
-
-Example Usage:
-    >>> import torch
-    >>> from model import HierForecastNet
-    >>> 
-    >>> # Initialize model
-    >>> model = HierForecastNet(input_features=10, hidden_dim=128, dropout_rate=0.1)
-    >>> 
-    >>> # Create sample inputs
-    >>> batch_size = 32
-    >>> x14 = torch.randn(batch_size, 14, 10)  # 14 days of features
-    >>> week_fifo = torch.randn(batch_size, 7, 128)  # 7 weekly tokens
-    >>> month_fifo = torch.randn(batch_size, 12, 128)  # 12 monthly tokens
-    >>> 
-    >>> # Forward pass
-    >>> day_pred, week_pred, month_pred_seq, wk0_tok, week_tok = model(x14, week_fifo, month_fifo)
 """
 from __future__ import annotations
 
@@ -95,27 +79,15 @@ class ChunkAttentionPool(nn.Module):
         hidden_dim (int): Hidden dimension size.
         num_heads (int, optional): Number of attention heads. Defaults to DEFAULT_ATTENTION_HEADS.
         dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
-        
-    Example:
-        >>> pool = ChunkAttentionPool(hidden_dim=128, num_heads=4)
-        >>> chunk = torch.randn(32, 7, 128)  # (batch, seq_len, hidden_dim)
-        >>> pooled = pool(chunk)  # (32, 128) - single token per chunk
     """
     
     def __init__(self, hidden_dim: int, num_heads: int = DEFAULT_ATTENTION_HEADS, 
                  dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
         super().__init__()
-        if hidden_dim <= 0:
-            raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
-        if num_heads <= 0:
-            raise ValueError(f"Number of heads must be positive, got {num_heads}")
-        if hidden_dim % num_heads != 0:
-            raise ValueError(f"Hidden dimension {hidden_dim} must be divisible by num_heads {num_heads}")
             
         self.query_token = nn.Parameter(torch.randn(1, 1, hidden_dim))
         self.multi_head_attention = nn.MultiheadAttention(
-            hidden_dim, num_heads, dropout=dropout_rate, batch_first=True
-        )
+            hidden_dim, num_heads, dropout=dropout_rate, batch_first=True)
         
     def forward(self, chunk: Tensor) -> Tensor:
         """
@@ -302,7 +274,7 @@ class WeeklyEncoder(nn.Module):
         
     Example:
         >>> encoder = WeeklyEncoder(hidden_dim=128, num_heads=4)
-        >>> weekly_tokens = torch.randn(32, 7, 128)  # 7 weekly tokens
+        >>> weekly_tokens = torch.randn(32, 12, 128)  # 12 weekly tokens
         >>> week_pred, new_week_token = encoder(weekly_tokens)
         >>> print(f"Week prediction shape: {week_pred.shape}")  # (32, 7)
         >>> print(f"New week token shape: {new_week_token.shape}")  # (32, 128)
@@ -483,8 +455,6 @@ class MonthDecoder(nn.Module):
             lstm_input = lstm_output
             
         return torch.cat(daily_outputs, dim=1)
-
-# ---------- Main Hierarchical Forecasting Model ----------
 
 class HierForecastNet(nn.Module):
     """
