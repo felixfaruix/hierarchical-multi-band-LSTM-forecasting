@@ -1,4 +1,3 @@
-python
 pandas
 scikit-learn
 joblib
@@ -17,5 +16,4 @@ torch
 torchvision
 torchmetrics
 transformers
-lstm
-dateutil
+python-dateutil
