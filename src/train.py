@@ -15,21 +15,18 @@ Author: Refactored for modularity and maintainability
 """
 
 from __future__ import annotations
-
 import random
 import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
-
 import numpy as np
 import torch
 import torch.nn as nn
 from tqdm import tqdm
 
-# Add src directory to path for imports
-sys.path.append(str(Path(__file__).parent))
 
+sys.path.append(str(Path(__file__).parent))
 from model import HierForecastNet, DEFAULT_HIDDEN_SIZE
 from timeseries_datamodule import merge_calendars, build_loaders
 
@@ -153,8 +150,7 @@ class HierarchicalWRMSSE(nn.Module):
         
     def forward(self, daily_pred: torch.Tensor, weekly_pred: torch.Tensor, monthly_pred: torch.Tensor,
                 daily_true: torch.Tensor, weekly_true: torch.Tensor, monthly_true: torch.Tensor,
-                daily_insample: torch.Tensor, weekly_insample: torch.Tensor, 
-                monthly_insample: torch.Tensor) -> torch.Tensor:
+                daily_insample: torch.Tensor, weekly_insample: torch.Tensor, monthly_insample: torch.Tensor) -> torch.Tensor:
         """
         Compute hierarchical WRMSSE loss.
         
@@ -180,7 +176,6 @@ class HierarchicalWRMSSE(nn.Module):
         
         return total_loss.mean()
 
-
 def set_random_seeds(seed: int) -> None:
     """Set random seeds for reproducibility."""
     random.seed(seed)
@@ -189,10 +184,6 @@ def set_random_seeds(seed: int) -> None:
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
-
-
-
-
 
 @torch.no_grad()
 def bootstrap_fifos(model: HierForecastNet, lookback: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -230,7 +221,6 @@ def bootstrap_fifos(model: HierForecastNet, lookback: torch.Tensor) -> Tuple[tor
     month_fifo = torch.stack(month_tokens[-12:], dim=1)   # (B,12,H)
     model.train()
     return week_fifo, month_fifo
-
 
 class HierarchicalTrainer:
     """Modular trainer for hierarchical forecasting models."""
@@ -312,9 +302,7 @@ class HierarchicalTrainer:
             weekly_fifo, monthly_fifo = bootstrap_fifos(self.model, lookback)
             
             # Forward pass
-            daily_pred, weekly_pred, monthly_pred, _, _ = self.model(
-                daily_window, weekly_fifo, monthly_fifo
-            )
+            daily_pred, weekly_pred, monthly_pred, _, _ = self.model(daily_window, weekly_fifo, monthly_fifo)
             
             # Prepare insample data for loss calculation
             daily_insample = lookback[:, -15:-1, -1]  # Last 14 days
@@ -343,6 +331,7 @@ class HierarchicalTrainer:
         # Setup components
         self.setup_data()
         self.setup_model()
+        assert self.model is not None, "Model was not initialized. Call setup_model() before training."
         
         # Training loop
         for epoch in range(self.config.epochs):
