@@ -18,37 +18,30 @@ Between the components, there are utility layers like `PreNormRes` for residual 
 with layer normalization, and `GLUffn` for feed-forward networks with gated linear units.
 """
 from __future__ import annotations
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-# Constants for better maintainability
-DEFAULT_HIDDEN_SIZE = 128
-DEFAULT_DROPOUT_RATE = 0.1
-DEFAULT_ATTENTION_HEADS = 4
-DEFAULT_CHUNK_SIZE = 7
-DEFAULT_DAILY_WINDOW = 14
-DEFAULT_MONTH_STEPS = 30
+default_hidden_size = 128
+default_dropout_rate = 0.1
+default_attention_heads = 4
+default_chunk_size = 7
+default_daily_window = 14
+default_month_steps = 30
 
 
 class FeatureAttention(nn.Module):
     """
     Feature attention mechanism that applies soft attention over features within a single day.
-    
+
     This module computes attention weights for input features and returns a weighted sum,
     allowing the model to focus on the most relevant features for the current time step.
-    
+
     Args:
         in_dim (int): Input dimension (number of features).
-        
-    Example:
-        >>> attention = FeatureAttention(in_dim=10)
-        >>> x = torch.randn(32, 5, 10)  # (batch, time_steps, features)
-        >>> output = attention(x)  # (32, 5) - weighted features per time step
     """
-    
+
     def __init__(self, in_dim: int) -> None:
         super().__init__()
         if in_dim <= 0:
@@ -80,9 +73,9 @@ class ChunkAttentionPool(nn.Module):
         num_heads (int, optional): Number of attention heads. Defaults to DEFAULT_ATTENTION_HEADS.
         dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
     """
-    
-    def __init__(self, hidden_dim: int, num_heads: int = DEFAULT_ATTENTION_HEADS, 
-                 dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
+
+    def __init__(self, hidden_dim: int, num_heads: int = default_attention_heads,
+                 dropout_rate: float = default_dropout_rate) -> None:
         super().__init__()
             
         self.query_token = nn.Parameter(torch.randn(1, 1, hidden_dim))
@@ -115,16 +108,10 @@ class PreNormRes(nn.Module):
         dim (int): Dimension for layer normalization.
         sub_module (nn.Module): The sub-module to wrap.
         dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
-        
-    Example:
-        >>> sub_layer = nn.Linear(128, 128)
-        >>> pre_norm_layer = PreNormRes(128, sub_layer, dropout_rate=0.1)
-        >>> x = torch.randn(32, 128)
-        >>> output = pre_norm_layer(x)  # Applies norm -> sub_layer -> dropout -> residual
     """
     
     def __init__(self, dim: int, sub_module: nn.Module, 
-                 dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
+                 dropout_rate: float = default_dropout_rate) -> None:
         super().__init__()
         if dim <= 0:
             raise ValueError(f"Dimension must be positive, got {dim}")
@@ -156,24 +143,15 @@ class GLUffn(nn.Module):
     Args:
         dim (int): Input and output dimension.
         dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
-        
-    Example:
-        >>> ffn = GLUffn(dim=128, dropout_rate=0.1)
-        >>> x = torch.randn(32, 10, 128)
-        >>> output = ffn(x)  # Same shape as input: (32, 10, 128)
     """
-    
-    def __init__(self, dim: int, dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
+
+    def __init__(self, dim: int, dropout_rate: float = default_dropout_rate) -> None:
         super().__init__()
         if dim <= 0:
             raise ValueError(f"Dimension must be positive, got {dim}")
-        self.feed_forward = nn.Sequential(
-            nn.Linear(dim, dim * 2),
-            nn.GLU(),
-            nn.Dropout(dropout_rate),
-            nn.Linear(dim, dim)
-        )
-        
+        self.feed_forward = nn.Sequential(nn.Linear(dim, dim * 2), nn.GLU(), 
+                                          nn.Dropout(dropout_rate), nn.Linear(dim, dim))
+
     def forward(self, x: Tensor) -> Tensor:
         """
         Apply GLU feed-forward network.
@@ -189,7 +167,6 @@ class GLUffn(nn.Module):
 class DailyEncoder(nn.Module):
     """
     Daily encoder that processes a 14-day sequence to produce daily predictions and weekly tokens.
-    
     This encoder takes a 14-day window of features, applies feature attention for each day,
     processes the sequence with an LSTM, and produces:
     1. A prediction for the next day
@@ -199,17 +176,9 @@ class DailyEncoder(nn.Module):
         input_features (int): Number of input features per day.
         hidden_dim (int): Hidden dimension size for LSTM and projections.
         dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
-        
-    Example:
-        >>> encoder = DailyEncoder(input_features=10, hidden_dim=128)
-        >>> x14 = torch.randn(32, 14, 10)  # 14 days of features
-        >>> day_pred, week1_token, week0_token = encoder(x14)
-        >>> print(f"Day prediction shape: {day_pred.shape}")  # (32,)
-        >>> print(f"Weekly token shape: {week1_token.shape}")  # (32, 128)
     """
-    
     def __init__(self, input_features: int, hidden_dim: int, 
-                 dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
+                 dropout_rate: float = default_dropout_rate) -> None:
         super().__init__()
         if input_features <= 0:
             raise ValueError(f"Input features must be positive, got {input_features}")
@@ -221,7 +190,8 @@ class DailyEncoder(nn.Module):
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.chunk_pooler = ChunkAttentionPool(hidden_dim)
         self.daily_prediction_head = nn.Linear(hidden_dim, 1)
-        
+        self.sigma_head = nn.Sequential(nn.Linear(hidden_dim, 1), nn.Softplus())  # guarantees σ > 0
+
     def forward(self, x14: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
         Process 14-day sequence to produce daily prediction and weekly tokens.
@@ -236,13 +206,13 @@ class DailyEncoder(nn.Module):
                 - week0_token (Tensor): Shape (batch_size, hidden_dim) - second week token
         """
         batch_size, seq_len, num_features = x14.shape
-        if seq_len != DEFAULT_DAILY_WINDOW:
-            raise ValueError(f"Expected sequence length {DEFAULT_DAILY_WINDOW}, got {seq_len}")
-        
+        if seq_len != default_daily_window:
+            raise ValueError(f"Expected sequence length {default_daily_window}, got {seq_len}")
+
         # Apply feature attention for each day
-        daily_features = x14.view(batch_size * DEFAULT_DAILY_WINDOW, num_features)
-        attention_weights = self.daily_feature_attention(daily_features).view(batch_size, DEFAULT_DAILY_WINDOW, 1)
-        
+        daily_features = x14.view(batch_size * default_daily_window, num_features)
+        attention_weights = self.daily_feature_attention(daily_features).view(batch_size, default_daily_window, 1)
+
         # Project features and apply attention weights
         projected_features = self.feature_projection(x14) * attention_weights
         
@@ -261,7 +231,6 @@ class DailyEncoder(nn.Module):
 class WeeklyEncoder(nn.Module):
     """
     Weekly encoder that processes weekly tokens to produce weekly predictions and new weekly tokens.
-    
     This encoder takes a sequence of weekly tokens, applies cross-attention and LSTM processing,
     and produces:
     1. A 7-day prediction vector for the next week
@@ -270,33 +239,28 @@ class WeeklyEncoder(nn.Module):
     Args:
         hidden_dim (int): Hidden dimension size for all layers.
         num_heads (int, optional): Number of attention heads. Defaults to DEFAULT_ATTENTION_HEADS.
-        dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
-        
-    Example:
-        >>> encoder = WeeklyEncoder(hidden_dim=128, num_heads=4)
-        >>> weekly_tokens = torch.randn(32, 12, 128)  # 12 weekly tokens
-        >>> week_pred, new_week_token = encoder(weekly_tokens)
-        >>> print(f"Week prediction shape: {week_pred.shape}")  # (32, 7)
-        >>> print(f"New week token shape: {new_week_token.shape}")  # (32, 128)
+        dropout_rate (float, optional): Dropout rate. Defaults to default_dropout_rate.
     """
-    
-    def __init__(self, hidden_dim: int, num_heads: int = DEFAULT_ATTENTION_HEADS, 
-                 dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
+    def __init__(self, hidden_dim: int, num_heads: int = default_attention_heads, 
+                 dropout_rate: float = default_dropout_rate) -> None:
         super().__init__()
         if hidden_dim <= 0:
             raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
         if num_heads <= 0:
             raise ValueError(f"Number of heads must be positive, got {num_heads}")
             
-        self.cross_attention = PreNormRes(
-            hidden_dim, 
-            nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout_rate, batch_first=True), 
-            dropout_rate
-        )
+        self.cross_attention = PreNormRes(hidden_dim, 
+                                          nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout_rate, batch_first=True), 
+                                          dropout_rate)
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
+        # Feed-forward network to process the final LSTM output
+        # This will apply a GLU-based feed-forward network to the last LSTM output
+        # It allows the model to learn complex transformations of the input features
+        # It ensures that the weekly token is a rich representation and we can use it for further processing
         self.feed_forward = PreNormRes(hidden_dim, GLUffn(hidden_dim, dropout_rate), dropout_rate)
-        self.weekly_prediction_head = nn.Linear(hidden_dim, DEFAULT_CHUNK_SIZE)  # Predict 7 days
-        
+        # Weekly prediction head to generate a 7-day vector from the processed weekly token
+        self.weekly_prediction_head = nn.Linear(hidden_dim, default_chunk_size)  # Predict 7 days
+
     def forward(self, weekly_tokens: Tensor) -> tuple[Tensor, Tensor]:
         """
         Process weekly tokens to produce weekly prediction and new token.
@@ -309,16 +273,18 @@ class WeeklyEncoder(nn.Module):
                 - weekly_prediction (Tensor): Shape (batch_size, 7) - prediction for next 7 days
                 - new_weekly_token (Tensor): Shape (batch_size, hidden_dim) - processed weekly token
         """
-        batch_size, num_weeks, hidden_dim = weekly_tokens.shape
-        
+        assert weekly_tokens.dim() == 3, "Expected 3D input (B, T, H)"
+
         # Use last token as query for cross-attention
         query = weekly_tokens[:, -1:, :]  # Shape: (batch_size, 1, hidden_dim)
         
-        # Apply cross-attention
-        attended_context, _ = self.cross_attention.sub_module(query, weekly_tokens, weekly_tokens)
-        
+        # Apply cross-attention to infer context from weekly tokens
+        # This allows the model to focus on relevant weekly information out of the sequence
+        context, _ = self.cross_attention.sub_module(query, weekly_tokens, weekly_tokens)
+        enhanced_q = query + context # residual fusion
+
         # Concatenate with original tokens and process with LSTM
-        lstm_input = torch.cat([weekly_tokens, attended_context], dim=1)
+        lstm_input = torch.cat([weekly_tokens, enhanced_q], dim=1)
         lstm_output, _ = self.lstm(lstm_input)
         
         # Get the last token and apply feed-forward
@@ -326,41 +292,31 @@ class WeeklyEncoder(nn.Module):
         
         # Generate weekly prediction (7-day vector)
         weekly_prediction = self.weekly_prediction_head(last_token)
-        
+        # The new weekly token is the processed last token
         return weekly_prediction, last_token
 
 class MonthlyEncoder(nn.Module):
     """
-    Monthly encoder that processes monthly tokens to produce a final monthly representation.
-    
+    Monthly encoder that processes monthly tokens to produce a final monthly representation.   
     This encoder takes a sequence of monthly tokens, applies cross-attention and LSTM processing,
     and produces a final monthly token that can be used for monthly predictions.
     
     Args:
         hidden_dim (int): Hidden dimension size for all layers.
         num_heads (int, optional): Number of attention heads. Defaults to DEFAULT_ATTENTION_HEADS.
-        dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
-        
-    Example:
-        >>> encoder = MonthlyEncoder(hidden_dim=128, num_heads=4)
-        >>> monthly_tokens = torch.randn(32, 12, 128)  # 12 monthly tokens
-        >>> month_token = encoder(monthly_tokens)
-        >>> print(f"Month token shape: {month_token.shape}")  # (32, 128)
+        dropout_rate (float, optional): Dropout rate. Defaults to default_dropout_rate.
     """
-    
-    def __init__(self, hidden_dim: int, num_heads: int = DEFAULT_ATTENTION_HEADS, 
-                 dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
+    def __init__(self, hidden_dim: int, num_heads: int = default_attention_heads, 
+                 dropout_rate: float = default_dropout_rate) -> None:
         super().__init__()
         if hidden_dim <= 0:
             raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
         if num_heads <= 0:
             raise ValueError(f"Number of heads must be positive, got {num_heads}")
             
-        self.cross_attention = PreNormRes(
-            hidden_dim, 
-            nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout_rate, batch_first=True), 
-            dropout_rate
-        )
+        self.cross_attention = PreNormRes(hidden_dim, 
+                                          nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout_rate, batch_first=True), 
+                                          dropout_rate)
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.feed_forward = PreNormRes(hidden_dim, GLUffn(hidden_dim, dropout_rate), dropout_rate)
         
@@ -374,42 +330,37 @@ class MonthlyEncoder(nn.Module):
         Returns:
             Tensor: Final monthly token of shape (batch_size, hidden_dim)
         """
-        batch_size, num_months, hidden_dim = monthly_tokens.shape
+        assert monthly_tokens.dim() == 3, "Expected 3D input (B, T, H)"
         
         # Use last token as query for cross-attention
-        query = monthly_tokens[:, -1:, :]  # Shape: (batch_size, 1, hidden_dim)
+        query_m = monthly_tokens[:, -1:, :]  # Shape: (batch_size, 1, hidden_dim)
         
-        # Apply cross-attention
-        attended_context, _ = self.cross_attention.sub_module(query, monthly_tokens, monthly_tokens)
-        
+        # Apply cross-attention to infer context from monthly tokens
+        # This allows the model to focus on relevant monthly information out of the sequence
+        # The context is a weighted sum of the monthly tokens based on the query
+        context_m, _ = self.cross_attention.sub_module(query_m, monthly_tokens, monthly_tokens)
+        enhanced_q_m = query_m + context_m # residual fusion
+
         # Concatenate with original tokens and process with LSTM
-        lstm_input = torch.cat([monthly_tokens, attended_context], dim=1)
-        lstm_output, _ = self.lstm(lstm_input)
+        lstm_m_input = torch.cat([monthly_tokens, enhanced_q_m], dim=1)
+        lstm_m_output, _ = self.lstm(lstm_m_input)
         
         # Get the last token and apply feed-forward
-        final_token = self.feed_forward(lstm_output[:, -1])
-        
+        final_token = self.feed_forward(lstm_m_output[:, -1])
+
         return final_token
 
 class MonthDecoder(nn.Module):
     """
     Monthly decoder that autoregressively generates daily values from a monthly token.
-    
     This decoder takes a monthly token and generates a sequence of daily predictions
     using an LSTM in autoregressive mode. Each step uses the previous output as input.
     
     Args:
         hidden_dim (int): Hidden dimension size for the LSTM and linear layers.
-        dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
-        
-    Example:
-        >>> decoder = MonthDecoder(hidden_dim=128)
-        >>> month_token = torch.randn(32, 128)  # Monthly representation
-        >>> daily_sequence = decoder(month_token, steps=30)
-        >>> print(f"Daily sequence shape: {daily_sequence.shape}")  # (32, 30)
+        dropout_rate (float, optional): Dropout rate. Defaults to default_dropout_rate.
     """
-    
-    def __init__(self, hidden_dim: int, dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
+    def __init__(self, hidden_dim: int, dropout_rate: float = default_dropout_rate) -> None:
         super().__init__()
         if hidden_dim <= 0:
             raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
@@ -417,8 +368,8 @@ class MonthDecoder(nn.Module):
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.output_projection = nn.Linear(hidden_dim, 1)
         self.dropout = nn.Dropout(dropout_rate)
-        
-    def forward(self, monthly_token: Tensor, steps: int = DEFAULT_MONTH_STEPS) -> Tensor:
+
+    def forward(self, monthly_token: Tensor, steps: int = default_month_steps) -> Tensor:
         """
         Generate daily sequence from monthly token using autoregressive decoding.
         
@@ -459,7 +410,6 @@ class MonthDecoder(nn.Module):
 class HierForecastNet(nn.Module):
     """
     Hierarchical Forecasting Network for multi-scale time series prediction.
-    
     This is the main model that combines all encoders and decoders to perform hierarchical
     forecasting at daily, weekly, and monthly scales. The model processes a 14-day window
     of features and produces predictions at multiple time horizons.
@@ -469,33 +419,14 @@ class HierForecastNet(nn.Module):
     2. WeeklyEncoder: Processes weekly tokens → weekly prediction + weekly token
     3. MonthlyEncoder: Processes monthly tokens → monthly token
     4. MonthDecoder: Monthly token → sequence of daily predictions
-    
+
     Args:
         input_features (int): Number of input features per day.
         hidden_dim (int, optional): Hidden dimension size. Defaults to DEFAULT_HIDDEN_SIZE.
-        dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
-        
-    Example:
-        >>> # Initialize model
-        >>> model = HierForecastNet(input_features=10, hidden_dim=128, dropout_rate=0.1)
-        >>> 
-        >>> # Prepare inputs
-        >>> batch_size = 32
-        >>> x14 = torch.randn(batch_size, 14, 10)  # 14 days of features
-        >>> week_fifo = torch.randn(batch_size, 7, 128)  # 7 weekly tokens history
-        >>> month_fifo = torch.randn(batch_size, 12, 128)  # 12 monthly tokens history
-        >>> 
-        >>> # Forward pass
-        >>> outputs = model(x14, week_fifo, month_fifo)
-        >>> day_pred, week_pred, month_pred_seq, wk0_tok, week_tok = outputs
-        >>> 
-        >>> print(f"Daily prediction: {day_pred.shape}")  # (32,)
-        >>> print(f"Weekly prediction: {week_pred.shape}")  # (32, 7)
-        >>> print(f"Monthly prediction sequence: {month_pred_seq.shape}")  # (32, 30)
-    """
-    
-    def __init__(self, input_features: int, hidden_dim: int = DEFAULT_HIDDEN_SIZE, 
-                 dropout_rate: float = DEFAULT_DROPOUT_RATE) -> None:
+        dropout_rate (float, optional): Dropout rate. Defaults to default_dropout_rate.
+    """  
+    def __init__(self, input_features: int, hidden_dim: int = default_hidden_size, 
+                 dropout_rate: float = default_dropout_rate) -> None:
         super().__init__()
         if input_features <= 0:
             raise ValueError(f"Input features must be positive, got {input_features}")
@@ -537,5 +468,5 @@ class HierForecastNet(nn.Module):
         
         # Monthly decoding: monthly token → 30-day sequence
         monthly_prediction_sequence = self.monthly_decoder(monthly_token)
-        
+        # Ensure the output is in the correct shape
         return daily_prediction, weekly_prediction, monthly_prediction_sequence, week0_token, processed_weekly_token
