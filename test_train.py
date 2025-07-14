@@ -51,12 +51,14 @@ def test_configuration():
         
         # Test save/load
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
-            config.save_to_file(f.name)
-            loaded_config = train.TrainingConfig.load_from_file(f.name)
-            assert loaded_config.epochs == config.epochs
-            assert loaded_config.batch_size == config.batch_size
-            Path(f.name).unlink()  # Clean up
-            print("✓ Configuration save/load works")
+            try:
+                config.save_to_file(f.name)
+                loaded_config = train.TrainingConfig.load_from_file(f.name)
+                assert loaded_config.epochs == config.epochs
+                assert loaded_config.batch_size == config.batch_size
+                print("✓ Configuration save/load works")
+            finally:
+                Path(f.name).unlink()  # Ensure cleanup
         
         return True
         
