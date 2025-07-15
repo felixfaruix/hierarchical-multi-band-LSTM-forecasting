@@ -189,10 +189,10 @@ class DailyEncoder(nn.Module):
         self.daily_feature_attention = FeatureAttention(input_features)
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.chunk_pooler = ChunkAttentionPool(hidden_dim)
-        self.daily_prediction_head = nn.Linear(hidden_dim, 1)
+        self.mu_daily_head = nn.Linear(hidden_dim, 1)
         self.sigma_head = nn.Sequential(nn.Linear(hidden_dim, 1), nn.Softplus())  # guarantees σ > 0
 
-    def forward(self, x14: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+    def forward(self, x14: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         """
         Process 14-day sequence to produce daily prediction and weekly tokens.
         
@@ -218,15 +218,14 @@ class DailyEncoder(nn.Module):
         
         # Process with LSTM
         lstm_output, _ = self.lstm(projected_features)
-        
-        # Generate daily prediction from last timestep
-        daily_prediction = self.daily_prediction_head(lstm_output[:, -1]).squeeze(1)
-        
+        last_day = lstm_output[:, -1, :]  # Last output for daily prediction
+        mu_daily = self.mu_daily_head(last_day).squeeze(1)
+        sigma_daily = self.sigma_head(last_day).squeeze(1)  # Get σ for the last day
         # Generate weekly tokens using chunk attention pooling
         week1_token = self.chunk_pooler(lstm_output[:, 0:7])  # First 7 days
         week0_token = self.chunk_pooler(lstm_output[:, 7:14])  # Last 7 days
-        
-        return daily_prediction, week1_token, week0_token
+
+        return mu_daily, sigma_daily, week1_token, week0_token
 
 class WeeklyEncoder(nn.Module):
     """
@@ -259,9 +258,10 @@ class WeeklyEncoder(nn.Module):
         # It ensures that the weekly token is a rich representation and we can use it for further processing
         self.feed_forward = PreNormRes(hidden_dim, GLUffn(hidden_dim, dropout_rate), dropout_rate)
         # Weekly prediction head to generate a 7-day vector from the processed weekly token
-        self.weekly_prediction_head = nn.Linear(hidden_dim, default_chunk_size)  # Predict 7 days
+        self.mu_weekly_head = nn.Linear(hidden_dim, default_chunk_size) # 7-day prediction
+        self.sigma_w_head = nn.Sequential(nn.Linear(hidden_dim, 1), nn.Softplus())
 
-    def forward(self, weekly_tokens: Tensor) -> tuple[Tensor, Tensor]:
+    def forward(self, weekly_tokens: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
         Process weekly tokens to produce weekly prediction and new token.
         
@@ -286,14 +286,13 @@ class WeeklyEncoder(nn.Module):
         # Concatenate with original tokens and process with LSTM
         lstm_input = torch.cat([weekly_tokens, enhanced_q], dim=1)
         lstm_output, _ = self.lstm(lstm_input)
-        
+        mu_weekly = self.mu_weekly_head(lstm_output[:, -1]).squeeze(1)
+        sigma_weekly = self.sigma_w_head(lstm_output[:, -1]).squeeze(1)
         # Get the last token and apply feed-forward
         last_token = self.feed_forward(lstm_output[:, -1])
-        
-        # Generate weekly prediction (7-day vector)
-        weekly_prediction = self.weekly_prediction_head(last_token)
+
         # The new weekly token is the processed last token
-        return weekly_prediction, last_token
+        return mu_weekly, sigma_weekly, last_token
 
 class MonthlyEncoder(nn.Module):
     """
@@ -366,10 +365,11 @@ class MonthDecoder(nn.Module):
             raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
             
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
-        self.output_projection = nn.Linear(hidden_dim, 1)
+        self.mu_monthly = nn.Linear(hidden_dim, 1)
+        self.sigma_monthly = nn.Sequential(nn.Linear(hidden_dim, 1), nn.Softplus())  # guarantees σ > 0
         self.dropout = nn.Dropout(dropout_rate)
 
-    def forward(self, monthly_token: Tensor, steps: int = default_month_steps) -> Tensor:
+    def forward(self, monthly_token: Tensor, steps: int = default_month_steps) -> tuple[Tensor, Tensor]:
         """
         Generate daily sequence from monthly token using autoregressive decoding.
         
@@ -393,19 +393,22 @@ class MonthDecoder(nn.Module):
         lstm_input = torch.zeros(batch_size, 1, hidden_dim, device=monthly_token.device)
         
         # Autoregressively generate daily values
-        daily_outputs = []
+        daily_outputs_mu = []
+        daily_outputs_sigma = []
         for _ in range(steps):
             # LSTM forward pass
             lstm_output, (hidden_state, cell_state) = self.lstm(lstm_input, (hidden_state, cell_state))
             
             # Generate daily value
-            daily_value = self.output_projection(self.dropout(lstm_output))
-            daily_outputs.append(daily_value.squeeze(2))  # Remove feature dimension
-            
+            daily_value = self.mu_monthly(self.dropout(lstm_output))
+            sigma_value = self.sigma_monthly(self.dropout(lstm_output))
+            daily_outputs_mu.append(daily_value.squeeze(2))  # Remove feature dimension
+            daily_outputs_sigma.append(sigma_value.squeeze(2))  # Remove feature dimension
+
             # Use output as next input
             lstm_input = lstm_output
-            
-        return torch.cat(daily_outputs, dim=1)
+
+        return torch.cat(daily_outputs_mu, dim=1), torch.cat(daily_outputs_sigma, dim=1)
 
 class HierForecastNet(nn.Module):
     """
@@ -438,7 +441,7 @@ class HierForecastNet(nn.Module):
         self.monthly_encoder = MonthlyEncoder(hidden_dim, dropout_rate=dropout_rate)
         self.monthly_decoder = MonthDecoder(hidden_dim, dropout_rate)
         
-    def forward(self, x14: Tensor, week_fifo: Tensor, month_fifo: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    def forward(self, x14: Tensor, week_fifo: Tensor, month_fifo: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
         """
         Perform hierarchical forecasting across multiple time scales.
         
@@ -456,17 +459,17 @@ class HierForecastNet(nn.Module):
                 - weekly_token (Tensor): Processed weekly token, shape (batch_size, hidden_dim)
         """
         # Daily encoding: 14 days → daily prediction + 2 weekly tokens
-        daily_prediction, week1_token, week0_token = self.daily_encoder(x14)
+        mu_daily, sigma_daily, week1_token, week0_token = self.daily_encoder(x14)
         
         # Weekly encoding: update weekly FIFO and get weekly prediction
         weekly_input = torch.cat([week_fifo[:, 1:], week0_token.unsqueeze(1)], dim=1)
-        weekly_prediction, processed_weekly_token = self.weekly_encoder(weekly_input)
-        
+        mu_weekly, sigma_weekly, processed_weekly_token = self.weekly_encoder(weekly_input)
+
         # Monthly encoding: update monthly FIFO and get monthly token
         monthly_input = torch.cat([month_fifo[:, 1:], processed_weekly_token.unsqueeze(1)], dim=1)
-        monthly_token = self.monthly_encoder(monthly_input)
+        monthly_tokens = self.monthly_encoder(monthly_input)
         
         # Monthly decoding: monthly token → 30-day sequence
-        monthly_prediction_sequence = self.monthly_decoder(monthly_token)
+        mu_monthly_sequence, sigma_monthly_sequence = self.monthly_decoder(monthly_tokens)
         # Ensure the output is in the correct shape
-        return daily_prediction, weekly_prediction, monthly_prediction_sequence, week0_token, processed_weekly_token
+        return mu_daily, sigma_daily, mu_weekly, sigma_weekly, mu_monthly_sequence, sigma_monthly_sequence
