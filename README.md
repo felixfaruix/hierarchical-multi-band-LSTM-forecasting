@@ -7,7 +7,15 @@
 [![Optuna](https://img.shields.io/badge/Optuna-HPO-lightblue.svg)](https://optuna.org/)
 [![Weights & Biases](https://img.shields.io/badge/W&B-Tracking-yellow.svg)](https://wandb.ai/)
 
+
+
+
 ## Architecture Overview
+
+👉 [Live Animation](https://felixfaruix.github.io/forecast_visuals/)
+
+![Preview](assets/preview.gif)
+
 
 ```mermaid
 graph TB
