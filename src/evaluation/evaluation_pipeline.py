@@ -22,8 +22,8 @@ import torch
 from torch.utils.data import DataLoader
 
 # Import from our modular components
-from baseline_models import create_baseline_models_by_scale, BaselineForecaster
-from metrics_utils import (
+from ..models.baseline_models import create_baseline_models_by_scale, BaselineForecaster
+from .metrics import (
     ForecastingMetrics, 
     compute_comprehensive_metrics,
     aggregate_metrics_across_horizons,
@@ -31,22 +31,14 @@ from metrics_utils import (
     save_evaluation_results,
     generate_evaluation_summary
 )
-from stacked_variants import evaluate_stacked_variants
+from ..stacking.stacked_variants import evaluate_stacked_variants
+from ..utils.evaluation_utils import NeuralModelEvaluator, ModelPredictions
 
 # Import model and training utilities
-from model import HierForecastNet
-from train import bootstrap_fifos
-
-# Optional dependencies with import guards
-try:
-    from hierarchicalforecast import HierarchicalForecast
-    from hierarchicalforecast.methods import MinTrace
-    HIERARCHICAL_AVAILABLE = True
-except ImportError:
-    HierarchicalForecast = None
-    MinTrace = None
-    HIERARCHICAL_AVAILABLE = False
-
+from ..models.model import HierForecastNet
+from ..train.train import bootstrap_fifos
+from hierarchicalforecast import HierarchicalForecast
+from hierarchicalforecast.methods import MinTrace
 
 class HierarchicalReconciliation:
     """MinT reconciliation for hierarchical forecasts."""
@@ -61,6 +53,8 @@ class HierarchicalReconciliation:
             raise ImportError("hierarchicalforecast not available")
         
         # Simplified implementation - in practice you'd format data properly
+        if MinTrace is None:
+            raise ImportError("MinTrace is not available. Please install hierarchicalforecast.")
         self.reconciler = MinTrace()
         self.fitted = True
     
@@ -85,6 +79,7 @@ class HierarchicalEvaluationFramework:
     def __init__(self, device: Optional[torch.device] = None):
         self.device = device or torch.device('cpu')
         self.reconciliation_engine = HierarchicalReconciliation()
+        self.neural_evaluator = NeuralModelEvaluator(self.device)
         
     def evaluate_neural_model_with_proper_cv(self, 
                                             model: HierForecastNet, 
@@ -101,102 +96,63 @@ class HierarchicalEvaluationFramework:
         Returns:
             ForecastingMetrics object with comprehensive evaluation
         """
-        model.eval()
+        print("  Collecting neural model predictions...")
         
-        # Storage for predictions and actuals at each time scale
-        daily_predictions, daily_actuals = [], []
-        weekly_predictions, weekly_actuals = [], []
-        monthly_predictions, monthly_actuals = [], []
-        daily_insample_data, weekly_insample_data, monthly_insample_data = [], [], []
-        
-        with torch.no_grad():
-            for batch_data in test_data_loader:
-                lookback_window, daily_features, daily_targets, weekly_targets, monthly_targets = batch_data
-                
-                # Move all tensors to device
-                lookback_window = lookback_window.to(self.device).float()
-                daily_features = daily_features.to(self.device).float()
-                daily_targets = daily_targets.to(self.device).float()
-                weekly_targets = weekly_targets.to(self.device).float()
-                monthly_targets = monthly_targets.to(self.device).float()
-                
-                # Bootstrap context FIFOs from lookback data
-                weekly_context, monthly_context = bootstrap_fifos(model, lookback_window)
-                
-                # Forward pass through neural model
-                daily_mean, _, weekly_mean, _, monthly_mean, _ = model(
-                    daily_features, weekly_context, monthly_context
-                )
-                
-                # Store predictions and targets (always move to CPU first)
-                daily_predictions.append(daily_mean.cpu().numpy())
-                weekly_predictions.append(weekly_mean.cpu().numpy())
-                monthly_predictions.append(monthly_mean.cpu().numpy())
-                
-                daily_actuals.append(daily_targets.cpu().numpy())
-                weekly_actuals.append(weekly_targets.cpu().numpy())
-                monthly_actuals.append(monthly_targets.cpu().numpy())
-                
-                # Store insample data for scaling metrics
-                daily_insample_data.append(lookback_window[:, -15:-1, -1].cpu().numpy())
-                weekly_insample_data.append(lookback_window[:, -15:-1:7, -1].cpu().numpy())
-                monthly_insample_data.append(lookback_window[:, -365:, -1].cpu().numpy())
-        
-        # Concatenate all batches
-        daily_pred_array = np.concatenate(daily_predictions, axis=0)
-        weekly_pred_array = np.concatenate(weekly_predictions, axis=0)
-        monthly_pred_array = np.concatenate(monthly_predictions, axis=0)
-        
-        daily_actual_array = np.concatenate(daily_actuals, axis=0)
-        weekly_actual_array = np.concatenate(weekly_actuals, axis=0)
-        monthly_actual_array = np.concatenate(monthly_actuals, axis=0)
-        
-        daily_insample_array = np.concatenate(daily_insample_data, axis=0)
-        weekly_insample_array = np.concatenate(weekly_insample_data, axis=0)
-        monthly_insample_array = np.concatenate(monthly_insample_data, axis=0)
+        # Use our clean helper to collect all predictions
+        model_predictions = self.neural_evaluator.collect_model_predictions(model, test_data_loader)
         
         # Apply hierarchical reconciliation if requested
         if enable_reconciliation and HIERARCHICAL_AVAILABLE:
-            # Placeholder for MinT reconciliation
+            print("  Applying MinT reconciliation...")
+            # Placeholder for MinT reconciliation implementation
             pass
+        
+        print("  Computing metrics for each time scale...")
         
         # Compute comprehensive metrics for each time scale
         daily_metrics = self._compute_scale_metrics(
-            daily_actual_array, daily_pred_array, daily_insample_array, seasonal_period=7
+            model_predictions.daily_actuals, 
+            model_predictions.daily_predictions, 
+            model_predictions.daily_insample, 
+            seasonal_period=7
         )
         
         weekly_metrics = self._compute_scale_metrics(
-            weekly_actual_array, weekly_pred_array, weekly_insample_array, seasonal_period=4
+            model_predictions.weekly_actuals, 
+            model_predictions.weekly_predictions, 
+            model_predictions.weekly_insample, 
+            seasonal_period=4
         )
         
         monthly_metrics = self._compute_scale_metrics(
-            monthly_actual_array, monthly_pred_array, monthly_insample_array, seasonal_period=12
+            model_predictions.monthly_actuals, 
+            model_predictions.monthly_predictions, 
+            model_predictions.monthly_insample, 
+            seasonal_period=12
         )
         
         return create_unified_forecast_metrics(daily_metrics, weekly_metrics, monthly_metrics)
     
     def _compute_scale_metrics(self, actual_array: np.ndarray, pred_array: np.ndarray, 
                               insample_array: np.ndarray, seasonal_period: int) -> Dict[str, float]:
-        """Compute metrics for a specific time scale with proper multi-horizon handling."""
+        """Compute metrics for a specific time scale with bulletproof per-sample scaling."""
         
-        # Handle multi-step forecasts by computing per horizon then averaging
-        if pred_array.ndim > 1 and pred_array.shape[1] > 1:
-            metrics_list = []
-            for h in range(pred_array.shape[1]):
-                h_metrics = compute_comprehensive_metrics(
-                    actual_array[:, h], pred_array[:, h],
-                    insample_array[:, -1], seasonal_period=seasonal_period
-                )
-                metrics_list.append(h_metrics)
-            
-            # Average across horizons
-            return aggregate_metrics_across_horizons(metrics_list)
-        else:
-            # Single-step forecast
-            return compute_comprehensive_metrics(
-                actual_array.flatten(), pred_array.flatten(), 
-                insample_array[:, -1], seasonal_period=seasonal_period
-            )
+        # Import our bulletproof per-sample metrics function
+        from evaluation_utils import compute_metrics_per_sample_and_horizon
+        
+        # Use bulletproof per-sample scaling for shape-critical evaluation
+        # This ensures proper RMSSE/MASE computation without collapsing insample histories
+        per_sample_metrics = compute_metrics_per_sample_and_horizon(
+            actuals=actual_array,
+            predictions=pred_array, 
+            insample_histories=insample_array,
+            seasonal_period=seasonal_period,
+            scale_name="current_scale"  # Generic scale name for this computation
+        )
+        
+        # Return the bulletproof per-sample metrics
+        # This includes both per-horizon metrics (e.g., mae_h1, mae_h2) and averaged metrics (e.g., mae_avg)
+        return per_sample_metrics
     
     def evaluate_baseline_models(self, 
                                training_data: Dict[str, np.ndarray], 
@@ -342,6 +298,23 @@ class HierarchicalEvaluationFramework:
         
         results = {}
         
+        # STEP 0: Validate temporal split to ensure no data leakage
+        from evaluation_utils import validate_temporal_split
+        
+        if train_data_loader is not None:
+            print("Step 0: Validating temporal split to prevent data leakage...")
+            split_validation = validate_temporal_split(train_data_loader, test_data_loader)
+            results['temporal_split_validation'] = split_validation
+            
+            # Report any warnings
+            if split_validation['warnings']:
+                print("  ⚠️  TEMPORAL SPLIT WARNINGS:")
+                for warning in split_validation['warnings']:
+                    print(f"    - {warning}")
+            else:
+                print("  ✅ Temporal split validation passed")
+            print()
+        
         # Validate and prepare data
         baseline_training_data_validated = self._validate_baseline_data(baseline_training_data)
         baseline_test_data_validated = self._validate_baseline_data(baseline_test_data)
@@ -419,33 +392,3 @@ class HierarchicalEvaluationFramework:
     def save_results(self, results: Dict[str, Any], output_directory: str) -> None:
         """Save comprehensive evaluation results."""
         save_evaluation_results(results, output_directory)
-
-
-def main():
-    """
-    Example usage of the clean, modular evaluation framework.
-    """
-    print("Clean Hierarchical Forecasting Evaluation Framework v2.1")
-    print("=" * 60)
-    print("Modular Architecture:")
-    print("- baseline_models.py: All baseline forecasting models")
-    print("- metrics_utils.py: Metrics computation and result handling")
-    print("- stacked_variants.py: Deep model stacking evaluation")
-    print("- evaluation.py: Clean main orchestration logic")
-    print()
-    print("Key Features:")
-    print("- Clean, readable main evaluation workflow")
-    print("- Modular components for easy maintenance")
-    print("- Comprehensive baseline model comparison")
-    print("- Stacked model variants (Deep, Deep+ARIMA, Deep+ARIMA+LGB)")
-    print("- Statistical significance testing preparation")
-    print("- Proper time series cross-validation")
-    print()
-    print("Usage:")
-    print("  framework = HierarchicalEvaluationFramework()")
-    print("  results = framework.run_comprehensive_evaluation_with_cv(...)")
-    print("  framework.save_results(results, 'output_dir')")
-
-
-if __name__ == "__main__":
-    main()

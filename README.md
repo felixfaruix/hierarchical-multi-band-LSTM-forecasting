@@ -4,15 +4,85 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-orange.svg)](https://pytorch.org/)
 [![Azure ML](https://img.shields.io/badge/Azure-ML-blue.svg)](https://azure.microsoft.com/en-us/services/machine-learning/)
+[![Optuna](https://img.shields.io/badge/Optuna-HPO-lightblue.svg)](https://optuna.org/)
+[![Weights & Biases](https://img.shields.io/badge/W&B-Tracking-yellow.svg)](https://wandb.ai/)
+
+## Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Cloud Infrastructure"
+        AML[Azure ML<br/>Training & Deployment]
+        WB[Weights & Biases<br/>Experiment Tracking]
+        OPT[Optuna<br/>Hyperparameter Optimization]
+    end
+    
+    subgraph "Data Sources"
+        D1[Corn Futures<br/>ZC Daily]
+        D2[Ethanol D2<br/>Daily Historical]
+        D3[WTI Oil<br/>Daily Prices]
+        D4[USD/BRL<br/>Exchange Rate]
+        D5[PPI<br/>Weekly Data]
+    end
+    
+    subgraph "Data Processing Layer"
+        DP[Dataset Preprocessing<br/>Quality Assessment]
+        FE[Feature Engineering<br/>Calendar Effects]
+        DM[DataModule<br/>Sliding Windows]
+    end
+    
+    subgraph "Model Architecture"
+        HM[HierForecastNet<br/>Multi-Band LSTM]
+        BM[Baseline Models<br/>ARIMA, LightGBM]
+        SM[Stacked Variants<br/>Deep + ARIMA + LGB]
+    end
+    
+    subgraph "Evaluation Framework"
+        CV[Cross Validation<br/>Rolling Origin]
+        MET[Metrics<br/>RMSSE, MASE]
+        ST[Statistical Testing<br/>Diebold-Mariano]
+    end
+    
+    D1 --> DP
+    D2 --> DP
+    D3 --> DP
+    D4 --> DP
+    D5 --> DP
+    
+    DP --> FE
+    FE --> DM
+    
+    DM --> HM
+    DM --> BM
+    HM --> SM
+    BM --> SM
+    
+    HM --> CV
+    BM --> CV
+    SM --> CV
+    
+    CV --> MET
+    MET --> ST
+    
+    AML -.-> HM
+    WB -.-> CV
+    OPT -.-> HM
+    
+    style AML fill:#0078d4,stroke:#333,color:#fff
+    style WB fill:#ffbe0b,stroke:#333,color:#000
+    style OPT fill:#00bcd4,stroke:#333,color:#fff
+    style HM fill:#ff6b6b,stroke:#333,color:#fff
+    style ST fill:#51cf66,stroke:#333,color:#000
+```
 
 ## Overview
 
 This repository implements a state-of-the-art **Hierarchical Attention Network (HAN)** for forecasting European Ethanol T2 prices using multi-band LSTM architecture with cross-attention mechanisms. The system operates at daily, weekly, and monthly temporal resolutions, incorporating advanced statistical testing and hyperparameter optimization frameworks.
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 ```
-📊 Raw Data → 🔄 Preprocessing → 🧠 Hierarchical Model → 📈 Evaluation → 📋 Statistical Testing
+Raw Data → Preprocessing → Hierarchical Model → Evaluation → Statistical Testing
     ↓              ↓                ↓                  ↓              ↓
    D2 Daily      Feature Eng     Daily LSTM         Bulletproof     Diebold-Mariano
    Corn Prices   Calendar        Weekly LSTM        Metrics         A/B Testing
@@ -21,18 +91,18 @@ This repository implements a state-of-the-art **Hierarchical Attention Network (
    PPI                           Mechanisms
 ```
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 src/
-├── 📂 models/                  # Neural architectures and baselines
+├── models/                  # Neural architectures and baselines
 │   ├── model.py               # HierForecastNet (main model)
 │   └── baseline_models.py     # Statistical baselines
-├── 📂 data/                   # Data processing pipeline
+├── data/                   # Data processing pipeline
 │   ├── dataset_preprocessing.py
 │   ├── timeseries_datamodule.py
 │   └── calendar_engineering.py
-├── 📂 evaluation/             # Comprehensive evaluation framework
+├── evaluation/             # Comprehensive evaluation framework
 │   ├── evaluation.py          # Main evaluation orchestrator
 │   ├── metrics.py             # Competition-grade metrics
 │   ├── ts_cross_validation.py # Time series CV
@@ -40,21 +110,21 @@ src/
 │       ├── stats_evaluate.py  # High-level interface
 │       ├── diebold_mariano.py # DM test implementation
 │       └── loss_functions.py  # Loss utilities
-├── 📂 stacking/               # Model ensembling
+├── stacking/               # Model ensembling
 │   └── stacked_variants.py    # Deep + ARIMA + LightGBM
-├── 📂 train/                  # Training pipeline
+├── train/                  # Training pipeline
 │   ├── train.py              # Training orchestrator
 │   └── loss_functions.py     # Hierarchical loss functions
-├── 📂 utils/                  # General utilities
+├── utils/                  # General utilities
 │   └── evaluation_utils.py   # Evaluation helpers
-└── 📂 optimization/           # HPO and experiment tracking
+└── optimization/           # HPO and experiment tracking
     ├── optuna_optimizer.py    # Bayesian optimization
     ├── wandb_integration.py   # Weights & Biases tracking
     └── visualization/         # Advanced plotting utilities
         └── optuna_plots.py
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Environment Setup
 ```bash
@@ -92,20 +162,20 @@ python -m src.evaluation.evaluation --model-path models/best_model.pt
 python -m src.evaluation.statistical_testing.stats_evaluate --results-path results/
 ```
 
-## 📓 Scientific Notebook
+## Scientific Notebook
 
 The main research workflow is documented in:
 **[`notebooks/Scientific_Pipeline_Ethanol_Forecasting.ipynb`](notebooks/Scientific_Pipeline_Ethanol_Forecasting.ipynb)**
 
 This notebook provides:
-- 🔬 **Methodology**: Detailed scientific rationale for each design choice
-- 📊 **Data Analysis**: Comprehensive exploratory data analysis
-- 🧠 **Model Architecture**: Visual explanations of hierarchical components
-- 📈 **Results**: Performance analysis with statistical significance testing
-- 🎯 **Hyperparameter Optimization**: Optuna-based Bayesian optimization
-- 📋 **A/B Testing**: Systematic model comparison framework
+- **Methodology**: Detailed scientific rationale for each design choice
+- **Data Analysis**: Comprehensive exploratory data analysis
+- **Model Architecture**: Visual explanations of hierarchical components
+- **Results**: Performance analysis with statistical significance testing
+- **Hyperparameter Optimization**: Optuna-based Bayesian optimization
+- **A/B Testing**: Systematic model comparison framework
 
-## 🧪 Key Features
+## Key Features
 
 ### Advanced Evaluation Framework
 - **Bulletproof Metrics**: Competition-grade RMSSE/MASE with proper per-sample scaling
@@ -125,7 +195,7 @@ This notebook provides:
 - **Sliding Windows**: Efficient processing with 1-year lookback memory
 - **Stacked Variants**: Deep learning + ARIMA + LightGBM ensembles
 
-## 📊 Performance Benchmarks
+## Performance Benchmarks
 
 | Model | Daily RMSSE | Weekly RMSSE | Monthly RMSSE | DM Test p-value |
 |-------|-------------|--------------|---------------|-----------------|
@@ -136,7 +206,7 @@ This notebook provides:
 
 *Statistically significant at α=0.05, ***α=0.001
 
-## 🎯 Research Contributions
+## Research Contributions
 
 1. **Hierarchical Multi-Band Architecture**: Novel LSTM design operating across multiple temporal resolutions
 2. **Bulletproof Evaluation Framework**: Competition-grade metrics with proper statistical validation
@@ -144,7 +214,7 @@ This notebook provides:
 4. **Comprehensive Statistical Testing**: Rigorous model comparison with Diebold-Mariano tests
 5. **Production-Ready Pipeline**: End-to-end system with Azure ML deployment capabilities
 
-## 📚 Theoretical Foundations
+## Theoretical Foundations
 
 Our approach builds upon seminal works in hierarchical forecasting:
 
@@ -154,7 +224,7 @@ Our approach builds upon seminal works in hierarchical forecasting:
 - **Statistical Testing** (Diebold & Mariano, 1995): Forecast accuracy comparison
 - **Hierarchical Reconciliation** (Hyndman et al., 2011): Coherent forecasting frameworks
 
-## 🔬 Citation
+## Citation
 
 If you use this work in your research, please cite:
 
@@ -168,15 +238,15 @@ If you use this work in your research, please cite:
 }
 ```
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## 🤝 Contributing
+## Contributing
 
 We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details.
 
-## 📞 Contact
+## Contact
 
 - **Author**: Felix
 - **Email**: [Your Email]

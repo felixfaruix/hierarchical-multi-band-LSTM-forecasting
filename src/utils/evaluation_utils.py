@@ -45,7 +45,6 @@ class PredictionBatch:
     weekly_insample: np.ndarray
     monthly_insample: np.ndarray
 
-
 @dataclass
 class ModelPredictions:
     """Container for all model predictions across the evaluation dataset."""
@@ -63,7 +62,6 @@ class ModelPredictions:
     def num_samples(self) -> int:
         """Get the number of samples in the predictions."""
         return len(self.daily_predictions)
-
 
 class NeuralModelEvaluator:
     """
@@ -415,6 +413,12 @@ def compute_metrics_per_sample_and_horizon(actuals: np.ndarray,
     return horizon_metrics
 
 
+from typing import Protocol, runtime_checkable
+
+@runtime_checkable
+class Sized(Protocol):
+    def __len__(self) -> int: ...
+
 def validate_temporal_split(train_loader: DataLoader, 
                           test_loader: DataLoader, 
                           validation_loader: Optional[DataLoader] = None) -> Dict[str, str]:
@@ -428,8 +432,8 @@ def validate_temporal_split(train_loader: DataLoader,
     """
     validation_results = {
         'status': 'unknown',
-        'train_samples': len(train_loader.dataset) if hasattr(train_loader.dataset, '__len__') else 'unknown',
-        'test_samples': len(test_loader.dataset) if hasattr(test_loader.dataset, '__len__') else 'unknown', 
+        'train_samples': len(train_loader.dataset) if isinstance(train_loader.dataset, Sized) else 'unknown',
+        'test_samples': len(test_loader.dataset) if isinstance(test_loader.dataset, Sized) else 'unknown', 
         'warnings': []
     }
     

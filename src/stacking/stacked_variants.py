@@ -19,9 +19,11 @@ import warnings
 from torch.utils.data import DataLoader
 from typing import Dict, Optional
 
-from ..evaluation.metrics import compute_comprehensive_metrics
-from ..utils.evaluation_utils import NeuralModelEvaluator
-from ..models.model import HierForecastNet
+from evaluation.metrics import compute_comprehensive_metrics
+from utils import evaluation_utils
+from utils.evaluation_utils import NeuralModelEvaluator, compute_metrics_per_sample_and_horizon
+from models.model import HierForecastNet
+
 
 # Optional dependencies with import guards
 try:
@@ -86,7 +88,6 @@ def evaluate_deep_only_variant(predictions: np.ndarray,
     Returns:
         Dictionary with evaluation metrics per horizon using proper per-sample scaling
     """
-    from evaluation_utils import compute_metrics_per_sample_and_horizon
     
     seasonal_periods = {'daily': 7, 'weekly': 4, 'monthly': 12}
     seasonal_period = seasonal_periods.get(scale, 1)
@@ -98,6 +99,7 @@ def evaluate_deep_only_variant(predictions: np.ndarray,
         insample_data = np.repeat(insample_data.reshape(1, -1), n_origins, axis=0)
     
     # Use bulletproof per-sample scaling for deep-only variant evaluation
+
     return compute_metrics_per_sample_and_horizon(
         actuals=actuals,
         predictions=predictions,
