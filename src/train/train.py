@@ -29,7 +29,8 @@ from tqdm import tqdm
 import torch.distributions as td
 
 sys.path.append(str(Path(__file__).parent))
-from model import HierForecastNet, default_hidden_size
+from ..models.model import HierForecastNet, default_hidden_size
+from loss_functions import HierarchicalWRMSSE, gaussian_nll
 from torch.utils.data import DataLoader
 
 
@@ -88,109 +89,8 @@ def get_device(device: Optional[str] = None) -> torch.device:
         return torch.device("cpu")
 
 
-class HierarchicalWRMSSE(nn.Module):
-    """
-    Hierarchical Weighted Root Mean Squared Scaled Error (WRMSSE) loss function.
-    
-    This loss function computes RMSSE for daily, weekly, and monthly predictions
-    and combines them using weighted averages. The RMSSE normalizes prediction
-    errors by the historical naive forecast error, making it scale-invariant.
-    
-    Args:
-        daily_weight (float): Weight for daily prediction loss
-        weekly_weight (float): Weight for weekly prediction loss  
-        monthly_weight (float): Weight for monthly prediction loss
-        epsilon (float): Small constant to avoid division by zero
-        
-    Example:
-        >>> loss_fn = HierarchicalWRMSSE(daily_weight=0.1, weekly_weight=0.3, monthly_weight=0.6)
-        >>> # During training:
-        >>> loss = loss_fn(daily_pred, weekly_pred, monthly_pred,
-        ...                daily_true, weekly_true, monthly_true,
-        ...                daily_insample, weekly_insample, monthly_insample)
-    """
-    
-    def __init__(self, daily_weight: float = 0.1, weekly_weight: float = 0.3, 
-                 monthly_weight: float = 0.6, epsilon: float = 1e-8) -> None:
-        super().__init__()
-        
-        if daily_weight < 0 or weekly_weight < 0 or monthly_weight < 0:
-            raise ValueError("All weights must be non-negative")
-        if daily_weight + weekly_weight + monthly_weight == 0:
-            raise ValueError("At least one weight must be positive")
-        
-        # Normalize weights
-        total_weight = daily_weight + weekly_weight + monthly_weight
-        self.daily_weight = daily_weight / total_weight
-        self.weekly_weight = weekly_weight / total_weight
-        self.monthly_weight = monthly_weight / total_weight
-        self.epsilon = epsilon
-        
-    def _compute_rmsse(self, predictions: torch.Tensor, targets: torch.Tensor, 
-                      insample_data: torch.Tensor) -> torch.Tensor:
-        """
-        Compute Root Mean Squared Scaled Error for a single scale.
-        
-        Args:
-            predictions (torch.Tensor): Model predictions
-            targets (torch.Tensor): True values
-            insample_data (torch.Tensor): Historical data for scaling
-            
-        Returns:
-            torch.Tensor: RMSSE value
-        """
-        # Compute mean squared error of predictions
-        prediction_mse = torch.mean((predictions - targets) ** 2, dim=-1)
-        
-        # Compute naive forecast error (using seasonal naive with lag=1)
-        if insample_data.dim() > 1:
-            naive_diff = insample_data[:, 1:] - insample_data[:, :-1]
-        else:
-            naive_diff = insample_data[1:] - insample_data[:-1]
-            
-        naive_mse = torch.mean(naive_diff ** 2, dim=-1)
-        
-        # Compute RMSSE with epsilon for numerical stability
-        rmsse = torch.sqrt(prediction_mse / (naive_mse + self.epsilon))
-        
-        return rmsse
-        
-    def forward(self, daily_pred: torch.Tensor, weekly_pred: torch.Tensor, monthly_pred: torch.Tensor,
-                daily_true: torch.Tensor, weekly_true: torch.Tensor, monthly_true: torch.Tensor,
-                daily_insample: torch.Tensor, weekly_insample: torch.Tensor, monthly_insample: torch.Tensor,
-                return_single_losses: bool):
-        """
-        Compute hierarchical WRMSSE loss.
-        
-        Args:
-            daily_pred, weekly_pred, monthly_pred: Model predictions at different scales
-            daily_true, weekly_true, monthly_true: True values at different scales
-            daily_insample, weekly_insample, monthly_insample: Historical data for scaling
-            
-        Returns:
-            torch.Tensor: Weighted combination of RMSSE losses
-        """
-        # Compute RMSSE for each scale
-        # We take the mean across the batch dimension because we want a single loss value
-        # For each scale, we compute the RMSSE using the provided true values and insample data
-
-        daily_rmsse = self._compute_rmsse(daily_pred, daily_true, daily_insample).mean()
-        weekly_rmsse = self._compute_rmsse(weekly_pred, weekly_true, weekly_insample).mean()
-        monthly_rmsse = self._compute_rmsse(monthly_pred, monthly_true, monthly_insample).mean()
-
-        if return_single_losses:
-            return daily_rmsse, weekly_rmsse, monthly_rmsse
-        # Combine with weights
-        total_loss = (self.daily_weight * daily_rmsse + 
-                      self.weekly_weight * weekly_rmsse + self.monthly_weight * monthly_rmsse
-                      )
-        return total_loss
-    
-def gaussian_nll(mu: torch.Tensor, sigma: torch.Tensor,
-                 target: torch.Tensor) -> torch.Tensor:
-    """Proper scoring rule for N(μ,σ²)."""
-    dist = td.Normal(mu, sigma)
-    return -dist.log_prob(target).mean()
+# Loss functions are now imported from loss_functions.py
+# This keeps train.py focused on training logic
 
 
 def set_random_seeds(seed: int) -> None:
@@ -215,6 +115,7 @@ def bootstrap_fifos(model: HierForecastNet, lookback: torch.Tensor) -> Tuple[tor
         week_fifo: (B, 7, hidden_dim)
         month_fifo: (B, 12, hidden_dim)
     """
+    was_training = model.training
     model.eval()
     B, _, _ = lookback.shape
     week_tokens: List[torch.Tensor] = []
@@ -236,7 +137,8 @@ def bootstrap_fifos(model: HierForecastNet, lookback: torch.Tensor) -> Tuple[tor
         wk_fifo = torch.cat([wk_fifo[:,1:], wk_tok.unsqueeze(1)], 1)
 
     month_fifo = torch.stack(month_tokens[-12:], dim=1)   # (B,12,H)
-    model.train()
+    model.train(was_training)  # Restore training mode if it was on
+    # Return the FIFOs
     return week_fifo, month_fifo
 
 class HierarchicalTrainer:
@@ -435,7 +337,6 @@ class HierarchicalTrainer:
         self.wrmsse_history["rmsse_daily"]  .append(running["rmsse_daily"])
         self.wrmsse_history["rmsse_weekly"] .append(running["rmsse_weekly"])
         self.wrmsse_history["rmsse_monthly"].append(running["rmsse_monthly"])
-
         return running["total"]
 
     def save_metrics(self, epoch: int):
@@ -478,22 +379,118 @@ class HierarchicalTrainer:
         torch.save(self.model.state_dict(),
                 Path(self.cfg.checkpoint_dir) / fname)
         
-def fit(self) -> None:
-    self.best_loss = float("inf")          # start fresh
-    best_path = Path(self.cfg.checkpoint_dir) / "best.pth"
-    best_path.parent.mkdir(parents=True, exist_ok=True)
+    def eval_epoch(self, val_loader: DataLoader) -> Any:
+        """Evaluate the model for one epoch on validation data."""
+        self.model.eval()
+        epoch_loss = 0.0
+        running = {"total": 0.0, "nll_daily": 0.0, "nll_weekly": 0.0, "nll_monthly": 0.0,
+                  "rmsse_daily": 0.0, "rmsse_weekly": 0.0, "rmsse_monthly": 0.0}
 
-    for epoch in range(self.cfg.epochs):
-        self.current_epoch = epoch
-        avg_loss = self.train_epoch()      # ← now a real float
-        if self.cfg.verbose:
-            print(f"Epoch {epoch + 1}/{self.cfg.epochs} - Loss: {avg_loss:.4f}")
-    
-        if avg_loss < self.best_loss:
-            self.best_loss = avg_loss
-            torch.save(self.model.state_dict(), best_path)   # always save
+        with torch.no_grad():
+            for lookback, daily_window, daily_target, weekly_target, monthly_target in val_loader:
+                # Move data to device
+                lookback = lookback.to(self.device).float()
+                daily_window = daily_window.to(self.device).float()
+                daily_target = daily_target.to(self.device).float()
+                weekly_target = weekly_target.to(self.device).float()
+                monthly_target = monthly_target.to(self.device).float()
+                
+                # Bootstrap context FIFOs from lookback data
+                weekly_fifo, monthly_fifo = bootstrap_fifos(self.model, lookback)
+                
+                # Forward pass
+                mu_daily, sigma_daily, mu_weekly, sigma_weekly, mu_monthly, sigma_monthly = self.model(
+                    daily_window, weekly_fifo, monthly_fifo)
+                
+                # Compute NLL for each scale
+                nll_daily = gaussian_nll(mu_daily, sigma_daily, daily_target)
+                nll_weekly = gaussian_nll(mu_weekly, sigma_weekly, weekly_target)
+                nll_monthly = gaussian_nll(mu_monthly, sigma_monthly, monthly_target)
+
+                # Prepare insample data for RMSSE calculation
+                daily_insample = lookback[:, -15:-1, -1]
+                weekly_insample = lookback[:, -15:-1:7, -1]
+                monthly_insample = lookback[:, -365:, -1]
+
+                rmsse_daily, rmsse_weekly, rmsse_monthly = self.loss_fn(
+                    mu_daily, mu_weekly, mu_monthly,
+                    daily_target, weekly_target, monthly_target,
+                    daily_insample, weekly_insample, monthly_insample,
+                    return_single_losses=True)
+
+                S = self.cfg.daily_weight + self.cfg.weekly_weight + self.cfg.monthly_weight
+                loss_nll = (self.cfg.daily_weight * nll_daily + 
+                           self.cfg.weekly_weight * nll_weekly + 
+                           self.cfg.monthly_weight * nll_monthly) / S
+                
+                loss_wr = (self.cfg.daily_weight * rmsse_daily + 
+                          self.cfg.weekly_weight * rmsse_weekly + 
+                          self.cfg.monthly_weight * rmsse_monthly) / S
+                
+                total_loss = loss_nll + self.cfg.lambda_wrmsse * loss_wr
+
+                # Accumulate losses
+                running["total"] += total_loss.item()
+                running["nll_daily"] += nll_daily.item()
+                running["nll_weekly"] += nll_weekly.item()
+                running["nll_monthly"] += nll_monthly.item()
+                running["rmsse_daily"] += rmsse_daily.item()
+                running["rmsse_weekly"] += rmsse_weekly.item()
+                running["rmsse_monthly"] += rmsse_monthly.item()
+                epoch_loss += total_loss.item()
+
+        num_batches = len(val_loader)
+        for k in running:
+            running[k] /= num_batches
+
+        return running
+
+    def fit(self, val_loader: Optional[DataLoader] = None, patience: int = 10) -> None:
+        """Train the model with optional validation and early stopping."""
+        self.best_loss = float("inf")
+        best_path = Path(self.cfg.checkpoint_dir) / "best.pth"
+        best_path.parent.mkdir(parents=True, exist_ok=True)
         
-        if (epoch + 1) % self.cfg.save_every_epochs == 0:
-            self.save_checkpoint(epoch + 1, avg_loss)
+        # Early stopping variables
+        epochs_without_improvement = 0
+        best_val_loss = float("inf")
 
-    self.save_metrics(self.cfg.epochs) 
+        for epoch in range(self.cfg.epochs):
+            self.current_epoch = epoch
+            avg_loss = self.train_epoch()
+            
+            # Validation step
+            val_metrics = None
+            if val_loader is not None:
+                val_metrics = self.eval_epoch(val_loader)
+                val_loss = val_metrics["total"]
+                
+                if self.cfg.verbose:
+                    print(f"Epoch {epoch + 1}/{self.cfg.epochs} - Train Loss: {avg_loss:.4f} - Val Loss: {val_loss:.4f}")
+                
+                # Early stopping logic
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    epochs_without_improvement = 0
+                    torch.save(self.model.state_dict(), best_path)
+                else:
+                    epochs_without_improvement += 1
+                    
+                    #patience is the number of epochs to wait before stopping
+                if epochs_without_improvement >= patience:
+                    if self.cfg.verbose:
+                        print(f"Early stopping triggered after {epoch + 1} epochs")
+                    break
+            else:
+                if self.cfg.verbose:
+                    print(f"Epoch {epoch + 1}/{self.cfg.epochs} - Loss: {avg_loss:.4f}")
+                
+                if avg_loss < self.best_loss:
+                    self.best_loss = avg_loss
+                    torch.save(self.model.state_dict(), best_path)
+            
+            if (epoch + 1) % self.cfg.save_every_epochs == 0:
+                self.save_checkpoint(epoch + 1, avg_loss)
+        # Save final metrics after training only until the last epoch
+        n_epochs_run = len(self.grad_history["daily"])
+        self.save_metrics(n_epochs_run)

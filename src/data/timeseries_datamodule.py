@@ -61,9 +61,9 @@ class RollingOrigin(Dataset):
     """
     def __init__(self, df: pd.DataFrame, features: List[str]):
         self.df = df.reset_index(drop=True)
-        self.X = self.df[features].to_numpy("float32")
-        self.y = self.df[target_variable].to_numpy("float32")
-        self.first_origin = lookback_days 
+        self.X = self.df[features].to_numpy(dtype=np.float32)
+        self.y = self.df[target_variable].to_numpy(dtype=np.float32)
+        self.first_origin = lookback_days
         self.last_origin = len(df) - (daily_window + monthly_horizon)
 
     def __len__(self):
@@ -101,8 +101,42 @@ class RollingOrigin(Dataset):
         return (torch.from_numpy(lookback_memory), # 365-day lookback memory
             torch.from_numpy(daily_features),  # 14-day daily window
             torch.tensor(daily_target, dtype=torch.float32),
-            torch.from_numpy(weekly_target),
-            torch.from_numpy(monthly_target))
+            torch.from_numpy(weekly_target).float(),
+            torch.from_numpy(monthly_target).float())
+
+    def _get_sample_info(self, idx: int) -> Dict[str, int]:
+        """Get detailed information about a sample index for cross-validation alignment.
+        
+        Args:
+            idx: Sample index in the dataset
+            
+        Returns:
+            Dictionary with sample information including origin, start/end indices
+        """
+        origin_idx = self.first_origin + idx
+        start_idx = origin_idx - lookback_days
+        end_idx = origin_idx
+        target_start = origin_idx + daily_window
+        target_end = target_start + monthly_horizon
+        
+        return {
+            'sample_idx': idx,
+            'origin_idx': origin_idx,
+            'start_idx': start_idx,
+            'end_idx': end_idx,
+            'target_start': target_start,
+            'target_end': target_end
+        }
+
+    @property
+    def lookback(self) -> int:
+        """Return the lookback period for compatibility with cross-validation."""
+        return lookback_days
+
+    @property
+    def horizon(self) -> int:
+        """Return the forecast horizon for compatibility with cross-validation."""
+        return monthly_horizon
 
 def get_features_columns(df: pd.DataFrame) -> List[str]:
     """Get feature columns from the DataFrame excluding 'date'

@@ -59,10 +59,17 @@ def build_calendar_df(start_date: str ="2010-01-01", end_date: str ="2030-12-31"
 
     # End-of-month flag
     # We create a boolean column for month end
-    # This will be True if the date is the last day of the month. We need the helper because pandas does not have a built-in function for this.
-    # We will use this to create a flag for end-of-month (EOM) events
-    eom_flags = pd.concat([df["is_month_end"], df["is_month_end"].shift(-1), df["is_month_end"].shift(-2)], axis=1).fillna(False)
+    # This will be True if the date is the last day of the month
+    df["is_month_end"] = df["date"].dt.is_month_end
+    
+    # End-of-month window (includes 2 days before and the month end day)
+    eom_flags = pd.concat([
+        df["is_month_end"], 
+        df["is_month_end"].shift(-1), 
+        df["is_month_end"].shift(-2)
+    ], axis=1).fillna(False)
     df["is_eom"] = eom_flags.any(axis=1).astype(int)
+    
     return df.drop(columns=["is_month_end"])
 
 cyclical_calendar = build_calendar_df()

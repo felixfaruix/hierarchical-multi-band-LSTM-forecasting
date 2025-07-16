@@ -230,7 +230,7 @@ class DailyEncoder(nn.Module):
 class WeeklyEncoder(nn.Module):
     """
     Weekly encoder that processes weekly tokens to produce weekly predictions and new weekly tokens.
-    This encoder takes a sequence of weekly tokens, applies cross-attention and LSTM processing,
+    This encoder takes a sequence of weeklyy tokens, applies cross-attention and LSTM processing,
     and produces:
     1. A 7-day prediction vector for the next week
     2. A new weekly token representing the processed week

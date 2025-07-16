@@ -17,3 +17,9 @@ torchvision
 torchmetrics
 transformers
 python-dateutil
+
+# Statistical forecasting libraries
+statsforecast>=1.4.0
+hierarchicalforecast>=0.5.0
+pmdarima>=2.0.0
+optuna

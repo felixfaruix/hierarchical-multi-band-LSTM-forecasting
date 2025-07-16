@@ -253,8 +253,8 @@ if __name__ == "__main__":
     # 8. Scale the features
     # We use MinMaxScaler to scale the features to [0, 1]
     # We fit the scaler only on the training slice of the data
-    # This is important to avoid data leakage from future values
-    train_mask = merged["date"] < pd.to_datetime(start_date)
+    # Fit scaler only on training slice (before validation start date)
+    train_mask = merged["date"] < pd.to_datetime("2022-01-01")  # Use actual validation start date
     # Fit scaler only on training slice
     scaler = MinMaxScaler().fit(merged.loc[train_mask, daily_columns_extended])
     # Transform the entire DataFrame with that single scaler
