@@ -26,17 +26,7 @@ from torch.utils.data import Dataset, DataLoader, Subset
 import warnings
 from pathlib import Path
 import contextlib
-
-if TYPE_CHECKING:
-    from timeseries_datamodule import RollingOrigin
-
-# Import constants from timeseries_datamodule
-try:
-    from timeseries_datamodule import lookback_days, daily_window, monthly_horizon
-except ImportError:
-    lookback_days = 365
-    daily_window = 14
-    monthly_horizon = 30
+from data.timeseries_datamodule import RollingOrigin, lookback_days, daily_window, monthly_horizon
 
 
 @dataclass
@@ -52,7 +42,6 @@ class CVFold:
     val_start_date: Optional[pd.Timestamp]
     val_end_date: Optional[pd.Timestamp]
 
-
 @dataclass
 class CVResults:
     """Container for cross-validation results."""
@@ -64,18 +53,13 @@ class CVResults:
     model_predictions: Dict[int, np.ndarray]  # fold -> predictions
     model_targets: Dict[int, np.ndarray]  # fold -> targets
 
-
 class ImprovedTimeSeriesCrossValidator:
     """
     Improved time series cross-validator with proper RollingOrigin alignment.
     """
     
-    def __init__(self,
-                 n_splits: int = 5,
-                 cv_type: str = "walk_forward",
-                 min_train_size: Optional[int] = None,
-                 forecast_horizon: int = 1,
-                 gap: int = 0):
+    def __init__(self, n_splits: int = 5, cv_type: str = "walk_forward", min_train_size: Optional[int] = None,
+                 forecast_horizon: int = 1, gap: int = 0):
         """
         Initialize the improved cross-validator.
         
@@ -92,8 +76,7 @@ class ImprovedTimeSeriesCrossValidator:
         self.forecast_horizon = forecast_horizon
         self.gap = gap
     
-    def get_rolling_origin_aligned_splits(self, 
-                                        rolling_dataset: 'RollingOrigin',
+    def get_rolling_origin_aligned_splits(self, rolling_dataset: 'RollingOrigin',
                                         date_index: Optional[pd.DatetimeIndex] = None) -> List[CVFold]:
         """
         Generate CV splits that align exactly with RollingOrigin dataset logic.

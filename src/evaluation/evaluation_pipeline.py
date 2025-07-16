@@ -26,18 +26,15 @@ from ..models.baseline_models import create_baseline_models_by_scale, BaselineFo
 from .metrics import (
     ForecastingMetrics, 
     compute_comprehensive_metrics,
-    aggregate_metrics_across_horizons,
     create_unified_forecast_metrics,
     save_evaluation_results,
     generate_evaluation_summary
 )
-from ..stacking.stacked_variants import evaluate_stacked_variants
-from ..utils.evaluation_utils import NeuralModelEvaluator, ModelPredictions
+from ..utils.evaluation_utils import NeuralModelEvaluator, compute_metrics_per_sample_and_horizon, validate_temporal_split
 
 # Import model and training utilities
 from ..models.model import HierForecastNet
-from ..train.train import bootstrap_fifos
-from hierarchicalforecast import HierarchicalForecast
+from hierarchicalforecast.core import HierarchicalReconciliation as HFReconciliation
 from hierarchicalforecast.methods import MinTrace
 
 class HierarchicalReconciliation:
@@ -48,14 +45,11 @@ class HierarchicalReconciliation:
         self.reconciler = None
     
     def fit(self, S: np.ndarray, y_train_levels: Dict[str, np.ndarray]) -> None:
-        """Fit MinT reconciliation."""
-        if not HIERARCHICAL_AVAILABLE:
-            raise ImportError("hierarchicalforecast not available")
-        
+        """Fit MinT reconciliation."""  
         # Simplified implementation - in practice you'd format data properly
         if MinTrace is None:
             raise ImportError("MinTrace is not available. Please install hierarchicalforecast.")
-        self.reconciler = MinTrace()
+        self.reconciler = MinTrace(method='mint_shrink')
         self.fitted = True
     
     def reconcile(self, base_forecasts: Dict[str, np.ndarray], 
@@ -78,12 +72,10 @@ class HierarchicalEvaluationFramework:
     
     def __init__(self, device: Optional[torch.device] = None):
         self.device = device or torch.device('cpu')
-        self.reconciliation_engine = HierarchicalReconciliation()
+        self.reconciliation_engine = HFReconciliation(reconcilers=[MinTrace(method='mint_shrink')])
         self.neural_evaluator = NeuralModelEvaluator(self.device)
         
-    def evaluate_neural_model_with_proper_cv(self, 
-                                            model: HierForecastNet, 
-                                            test_data_loader: DataLoader, 
+    def evaluate_neural_model_with_proper_cv(self, model: HierForecastNet, test_data_loader: DataLoader, 
                                             enable_reconciliation: bool = False) -> ForecastingMetrics:
         """
         Evaluate neural hierarchical model with proper cross-validation practices.
@@ -96,18 +88,18 @@ class HierarchicalEvaluationFramework:
         Returns:
             ForecastingMetrics object with comprehensive evaluation
         """
-        print("  Collecting neural model predictions...")
+        print(" Collecting neural model predictions...")
         
         # Use our clean helper to collect all predictions
         model_predictions = self.neural_evaluator.collect_model_predictions(model, test_data_loader)
         
         # Apply hierarchical reconciliation if requested
-        if enable_reconciliation and HIERARCHICAL_AVAILABLE:
-            print("  Applying MinT reconciliation...")
+        if enable_reconciliation:
+            print("Applying MinT reconciliation...")
             # Placeholder for MinT reconciliation implementation
             pass
         
-        print("  Computing metrics for each time scale...")
+        print("Computing metrics for each time scale...")
         
         # Compute comprehensive metrics for each time scale
         daily_metrics = self._compute_scale_metrics(
@@ -136,10 +128,7 @@ class HierarchicalEvaluationFramework:
     def _compute_scale_metrics(self, actual_array: np.ndarray, pred_array: np.ndarray, 
                               insample_array: np.ndarray, seasonal_period: int) -> Dict[str, float]:
         """Compute metrics for a specific time scale with bulletproof per-sample scaling."""
-        
-        # Import our bulletproof per-sample metrics function
-        from evaluation_utils import compute_metrics_per_sample_and_horizon
-        
+
         # Use bulletproof per-sample scaling for shape-critical evaluation
         # This ensures proper RMSSE/MASE computation without collapsing insample histories
         per_sample_metrics = compute_metrics_per_sample_and_horizon(
@@ -297,10 +286,6 @@ class HierarchicalEvaluationFramework:
         """
         
         results = {}
-        
-        # STEP 0: Validate temporal split to ensure no data leakage
-        from evaluation_utils import validate_temporal_split
-        
         if train_data_loader is not None:
             print("Step 0: Validating temporal split to prevent data leakage...")
             split_validation = validate_temporal_split(train_data_loader, test_data_loader)
@@ -339,16 +324,7 @@ class HierarchicalEvaluationFramework:
         )
         results['baseline_models'] = baseline_results
         
-        # Step 3: Evaluate stacked model variants if requested
-        if enable_stacked_variants and train_data_loader is not None:
-            print("Step 3: Evaluating stacked model variants...")
-            stacked_variants_results = evaluate_stacked_variants(
-                neural_model, train_data_loader, test_data_loader, 
-                baseline_training_data_validated, baseline_test_data_validated
-            )
-            results['stacked_variants'] = stacked_variants_results
-        
-        # Step 4: Prepare statistical test data if requested
+        # Step 3: Prepare statistical test data if requested
         if enable_statistical_testing:
             print("Step 4: Preparing statistical test data...")
             statistical_test_data = self.prepare_statistical_test_data(
@@ -369,15 +345,12 @@ class HierarchicalEvaluationFramework:
             'statistical_testing_enabled': enable_statistical_testing,
             'stacked_variants_enabled': enable_stacked_variants,
             'baseline_models_evaluated': list(baseline_results.keys()) if baseline_results else [],
-            'stacked_variants_evaluated': list(results.get('stacked_variants', {}).keys()),
             'evaluation_framework_version': '2.1.0-modular'
         }
         
         print("="*60)
         print("Comprehensive evaluation completed successfully!")
-        print(f"Models evaluated: {len(baseline_results) + 1 + len(results.get('stacked_variants', {}))}")
-        print("Use statistical_testing.py for significance tests")
-        print("Use time_series_cross_validation.py for walk-forward analysis")
+        print(f"Models evaluated: {len(baseline_results) + 1 } (including neural model)")
         
         return results
     

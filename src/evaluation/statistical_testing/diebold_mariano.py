@@ -10,14 +10,10 @@ from typing import Union, Callable, Optional
 import numpy as np
 import warnings
 from scipy.stats import norm, t
-
 from . import StatisticalTestResult, validate_forecast_alignment
-from .loss_stats_functions import (
-    compute_loss_differential, 
-    compute_long_run_variance_proper, 
-    harvey_leybourne_newbold_correction
-)
-
+from .loss_stats_functions import (compute_loss_differential, 
+                                   compute_long_run_variance_proper, 
+                                   harvey_leybourne_newbold_correction)
 
 class ImprovedDieboldMarianoTest:
     """

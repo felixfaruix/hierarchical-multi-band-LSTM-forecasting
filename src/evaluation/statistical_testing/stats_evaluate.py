@@ -162,17 +162,3 @@ class StatisticalEvaluator:
         ranking_df['rank'] = range(1, len(ranking_df) + 1)
         
         return ranking_df
-
-
-if __name__ == "__main__":
-    print("Statistical Evaluation Module for Forecasting Models")
-    print("=" * 55)
-    print("Available tests:")
-    print("1. ✅ Improved Diebold-Mariano Test")
-    print("2. ✅ Pairwise Model Comparison")
-    print("3. ✅ Model Ranking System")
-    print()
-    print("Usage example:")
-    print("  evaluator = StatisticalEvaluator()")
-    print("  result = evaluator.compare_models(errors1, errors2, horizon=7)")
-    print("  ranking = evaluator.model_ranking(model_errors_dict, horizon=7)")

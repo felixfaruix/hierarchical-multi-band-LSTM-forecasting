@@ -36,11 +36,11 @@ class QuickOptimizationConfig:
     patience: int = 10
     
     # Search space (limited for quick optimization)
-    hidden_dims: List[int] = None
+    hidden_dims: Optional[List[int]] = None
     num_layers_range: tuple = (2, 4)
     dropout_range: tuple = (0.1, 0.3)
     learning_rate_range: tuple = (1e-4, 1e-2)
-    batch_sizes: List[int] = None
+    batch_sizes: Optional[List[int]] = None
     
     def __post_init__(self):
         if self.hidden_dims is None:
@@ -68,12 +68,12 @@ class ResearchOptimizationConfig:
     patience: int = 20
     
     # Search space (comprehensive)
-    hidden_dims: List[int] = None
+    hidden_dims: Optional[List[int]] = None
     num_layers_range: tuple = (2, 8)
     dropout_range: tuple = (0.0, 0.6)
     learning_rate_range: tuple = (1e-5, 1e-1)
-    batch_sizes: List[int] = None
-    attention_heads: List[int] = None
+    batch_sizes: Optional[List[int]] = None
+    attention_heads: Optional[List[int]] = None
     hierarchy_levels_range: tuple = (2, 5)
     frequency_bands_range: tuple = (2, 6)
     
@@ -105,11 +105,11 @@ class ProductionOptimizationConfig:
     patience: int = 15
     
     # Search space (focused on production viability)
-    hidden_dims: List[int] = None
+    hidden_dims: Optional[List[int]] = None
     num_layers_range: tuple = (2, 6)
     dropout_range: tuple = (0.1, 0.4)
     learning_rate_range: tuple = (1e-4, 1e-2)
-    batch_sizes: List[int] = None
+    batch_sizes: Optional[List[int]] = None
     
     # Production constraints
     max_model_size_mb: float = 100.0  # Model size constraint
@@ -141,8 +141,8 @@ class MultiObjectiveOptimizationConfig:
     patience: int = 15
     
     # Multi-objective settings
-    objectives: List[str] = None
-    objective_weights: Dict[str, float] = None
+    objectives: Optional[List[str]] = None
+    objective_weights: Optional[Dict[str, float]] = None
     pareto_front_size: int = 10
     
     def __post_init__(self):

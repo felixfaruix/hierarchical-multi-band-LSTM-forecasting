@@ -88,11 +88,6 @@ def get_device(device: Optional[str] = None) -> torch.device:
     else:
         return torch.device("cpu")
 
-
-# Loss functions are now imported from loss_functions.py
-# This keeps train.py focused on training logic
-
-
 def set_random_seeds(seed: int) -> None:
     """Set random seeds for reproducibility."""
     random.seed(seed)

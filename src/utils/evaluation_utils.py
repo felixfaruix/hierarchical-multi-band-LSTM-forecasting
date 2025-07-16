@@ -1,5 +1,5 @@
 """
-Neural Model Evaluation Utilities (FIXED - Paper Grade)
+Neural Model Evaluation Utilities
 
 This module contains helper functions for evaluating neural models with proper:
 - Per-sample insample scaling (not collapsed to scalars)
