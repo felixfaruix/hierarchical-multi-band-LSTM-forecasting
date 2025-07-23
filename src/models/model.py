@@ -23,12 +23,12 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 
-default_hidden_size = 128
-default_dropout_rate = 0.1
-default_attention_heads = 4
-default_chunk_size = 7
-default_daily_window = 14
-default_month_steps = 30
+hidden_size = 128
+dropout_rate = 0.1
+attention_heads = 4
+chunk_size = 7
+daily_window = 14
+month_steps = 30
 
 
 class FeatureAttention(nn.Module):
@@ -44,8 +44,6 @@ class FeatureAttention(nn.Module):
 
     def __init__(self, in_dim: int) -> None:
         super().__init__()
-        if in_dim <= 0:
-            raise ValueError(f"Input dimension must be positive, got {in_dim}")
         self.score = nn.Linear(in_dim, 1)
         
     def forward(self, x: Tensor) -> Tensor:
@@ -74,8 +72,7 @@ class ChunkAttentionPool(nn.Module):
         dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
     """
 
-    def __init__(self, hidden_dim: int, num_heads: int = default_attention_heads,
-                 dropout_rate: float = default_dropout_rate) -> None:
+    def __init__(self, hidden_dim: int, num_heads: int = attention_heads, dropout_rate: float = dropout_rate) -> None:
         super().__init__()
             
         self.query_token = nn.Parameter(torch.randn(1, 1, hidden_dim))
@@ -109,12 +106,10 @@ class PreNormRes(nn.Module):
         sub_module (nn.Module): The sub-module to wrap.
         dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
     """
-    
-    def __init__(self, dim: int, sub_module: nn.Module, 
-                 dropout_rate: float = default_dropout_rate) -> None:
+
+    def __init__(self, dim: int, sub_module: nn.Module, dropout_rate: float = dropout_rate) -> None:
         super().__init__()
-        if dim <= 0:
-            raise ValueError(f"Dimension must be positive, got {dim}")
+
         self.layer_norm = nn.LayerNorm(dim)
         self.sub_module = sub_module
         self.dropout = nn.Dropout(dropout_rate)
@@ -142,25 +137,23 @@ class GLUffn(nn.Module):
     
     Args:
         dim (int): Input and output dimension.
-        dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
+        dropout_rate (float, optional): Dropout rate.
+
+    Returns: 
+        Tensor: Output tensor of same shape as input.
     """
 
-    def __init__(self, dim: int, dropout_rate: float = default_dropout_rate) -> None:
+    def __init__(self, dim: int, dropout_rate: float = dropout_rate) -> None:
         super().__init__()
-        if dim <= 0:
-            raise ValueError(f"Dimension must be positive, got {dim}")
-        self.feed_forward = nn.Sequential(nn.Linear(dim, dim * 2), nn.GLU(), 
-                                          nn.Dropout(dropout_rate), nn.Linear(dim, dim))
+
+        self.feed_forward = nn.Sequential(nn.Linear(dim, dim * 2), nn.GLU(), nn.Dropout(dropout_rate), nn.Linear(dim, dim))
 
     def forward(self, x: Tensor) -> Tensor:
         """
         Apply GLU feed-forward network.
-        
-        Args:
-            x (Tensor): Input tensor of any shape (..., dim).
-            
-        Returns:
-            Tensor: Output tensor of same shape as input.
+        I learns gates to control information flow. We feed the input through a linear layer [shape: (batch_size, dim)],
+        and we apply GLU to produce the output [shape: (batch_size, dim * 2)]. 
+        Then we apply another linear layer to reduce the output back to the original dimension.
         """
         return self.feed_forward(x)
 
@@ -177,13 +170,8 @@ class DailyEncoder(nn.Module):
         hidden_dim (int): Hidden dimension size for LSTM and projections.
         dropout_rate (float, optional): Dropout rate. Defaults to DEFAULT_DROPOUT_RATE.
     """
-    def __init__(self, input_features: int, hidden_dim: int, 
-                 dropout_rate: float = default_dropout_rate) -> None:
+    def __init__(self, input_features: int, hidden_dim: int, dropout_rate: float = dropout_rate) -> None:
         super().__init__()
-        if input_features <= 0:
-            raise ValueError(f"Input features must be positive, got {input_features}")
-        if hidden_dim <= 0:
-            raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
             
         self.feature_projection = nn.Linear(input_features, hidden_dim)
         self.daily_feature_attention = FeatureAttention(input_features)
@@ -206,12 +194,12 @@ class DailyEncoder(nn.Module):
                 - week0_token (Tensor): Shape (batch_size, hidden_dim) - second week token
         """
         batch_size, seq_len, num_features = x14.shape
-        if seq_len != default_daily_window:
-            raise ValueError(f"Expected sequence length {default_daily_window}, got {seq_len}")
+        if seq_len != daily_window:
+            raise ValueError(f"Expected sequence length {daily_window}, got {seq_len}")
 
         # Apply feature attention for each day
-        daily_features = x14.view(batch_size * default_daily_window, num_features)
-        attention_weights = self.daily_feature_attention(daily_features).view(batch_size, default_daily_window, 1)
+        daily_features = x14.view(batch_size * daily_window, num_features)
+        attention_weights = self.daily_feature_attention(daily_features).view(batch_size, daily_window, 1)
 
         # Project features and apply attention weights
         projected_features = self.feature_projection(x14) * attention_weights
@@ -240,16 +228,10 @@ class WeeklyEncoder(nn.Module):
         num_heads (int, optional): Number of attention heads. Defaults to DEFAULT_ATTENTION_HEADS.
         dropout_rate (float, optional): Dropout rate. Defaults to default_dropout_rate.
     """
-    def __init__(self, hidden_dim: int, num_heads: int = default_attention_heads, 
-                 dropout_rate: float = default_dropout_rate) -> None:
+    def __init__(self, hidden_dim: int, num_heads: int = attention_heads, dropout_rate: float = dropout_rate) -> None:
         super().__init__()
-        if hidden_dim <= 0:
-            raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
-        if num_heads <= 0:
-            raise ValueError(f"Number of heads must be positive, got {num_heads}")
-            
-        self.cross_attention = PreNormRes(hidden_dim, 
-                                          nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout_rate, batch_first=True), 
+
+        self.cross_attention = PreNormRes(hidden_dim, nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout_rate, batch_first=True), 
                                           dropout_rate)
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         # Feed-forward network to process the final LSTM output
@@ -258,7 +240,7 @@ class WeeklyEncoder(nn.Module):
         # It ensures that the weekly token is a rich representation and we can use it for further processing
         self.feed_forward = PreNormRes(hidden_dim, GLUffn(hidden_dim, dropout_rate), dropout_rate)
         # Weekly prediction head to generate a 7-day vector from the processed weekly token
-        self.mu_weekly_head = nn.Linear(hidden_dim, default_chunk_size) # 7-day prediction
+        self.mu_weekly_head = nn.Linear(hidden_dim, chunk_size) # 7-day prediction
         self.sigma_w_head = nn.Sequential(nn.Linear(hidden_dim, 1), nn.Softplus())
 
     def forward(self, weekly_tokens: Tensor) -> tuple[Tensor, Tensor, Tensor]:
@@ -273,7 +255,7 @@ class WeeklyEncoder(nn.Module):
                 - weekly_prediction (Tensor): Shape (batch_size, 7) - prediction for next 7 days
                 - new_weekly_token (Tensor): Shape (batch_size, hidden_dim) - processed weekly token
         """
-        assert weekly_tokens.dim() == 3, "Expected 3D input (B, T, H)"
+        assert weekly_tokens.dim() == 3
 
         # Use last token as query for cross-attention
         query = weekly_tokens[:, -1:, :]  # Shape: (batch_size, 1, hidden_dim)
@@ -283,7 +265,7 @@ class WeeklyEncoder(nn.Module):
         context, _ = self.cross_attention.sub_module(query, weekly_tokens, weekly_tokens)
         enhanced_q = query + context # residual fusion
 
-        # Concatenate with original tokens and process with LSTM
+        # Concatenating with original tokens and process with LSTM
         lstm_input = torch.cat([weekly_tokens, enhanced_q], dim=1)
         lstm_output, _ = self.lstm(lstm_input)
         mu_weekly = self.mu_weekly_head(lstm_output[:, -1]).squeeze(1)
@@ -305,16 +287,10 @@ class MonthlyEncoder(nn.Module):
         num_heads (int, optional): Number of attention heads. Defaults to DEFAULT_ATTENTION_HEADS.
         dropout_rate (float, optional): Dropout rate. Defaults to default_dropout_rate.
     """
-    def __init__(self, hidden_dim: int, num_heads: int = default_attention_heads, 
-                 dropout_rate: float = default_dropout_rate) -> None:
+    def __init__(self, hidden_dim: int, num_heads: int = attention_heads, dropout_rate: float = dropout_rate) -> None:
         super().__init__()
-        if hidden_dim <= 0:
-            raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
-        if num_heads <= 0:
-            raise ValueError(f"Number of heads must be positive, got {num_heads}")
-            
-        self.cross_attention = PreNormRes(hidden_dim, 
-                                          nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout_rate, batch_first=True), 
+
+        self.cross_attention = PreNormRes(hidden_dim, nn.MultiheadAttention(hidden_dim, num_heads, dropout=dropout_rate, batch_first=True), 
                                           dropout_rate)
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.feed_forward = PreNormRes(hidden_dim, GLUffn(hidden_dim, dropout_rate), dropout_rate)
@@ -359,17 +335,15 @@ class MonthDecoder(nn.Module):
         hidden_dim (int): Hidden dimension size for the LSTM and linear layers.
         dropout_rate (float, optional): Dropout rate. Defaults to default_dropout_rate.
     """
-    def __init__(self, hidden_dim: int, dropout_rate: float = default_dropout_rate) -> None:
+    def __init__(self, hidden_dim: int, dropout_rate: float = dropout_rate) -> None:
         super().__init__()
-        if hidden_dim <= 0:
-            raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
             
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
         self.mu_monthly = nn.Linear(hidden_dim, 1)
         self.sigma_monthly = nn.Sequential(nn.Linear(hidden_dim, 1), nn.Softplus())  # guarantees σ > 0
         self.dropout = nn.Dropout(dropout_rate)
 
-    def forward(self, monthly_token: Tensor, steps: int = default_month_steps) -> tuple[Tensor, Tensor]:
+    def forward(self, monthly_token: Tensor, steps: int = month_steps) -> tuple[Tensor, Tensor]:
         """
         Generate daily sequence from monthly token using autoregressive decoding.
         
@@ -380,9 +354,7 @@ class MonthDecoder(nn.Module):
         Returns:
             Tensor: Generated daily sequence of shape (batch_size, steps)
         """
-        if steps <= 0:
-            raise ValueError(f"Number of steps must be positive, got {steps}")
-            
+
         batch_size, hidden_dim = monthly_token.shape
         
         # Initialize LSTM hidden states
@@ -428,13 +400,9 @@ class HierForecastNet(nn.Module):
         hidden_dim (int, optional): Hidden dimension size. Defaults to DEFAULT_HIDDEN_SIZE.
         dropout_rate (float, optional): Dropout rate. Defaults to default_dropout_rate.
     """  
-    def __init__(self, input_features: int, hidden_dim: int = default_hidden_size, 
-                 dropout_rate: float = default_dropout_rate) -> None:
+    def __init__(self, input_features: int, hidden_dim: int = hidden_size, 
+                 dropout_rate: float = dropout_rate) -> None:
         super().__init__()
-        if input_features <= 0:
-            raise ValueError(f"Input features must be positive, got {input_features}")
-        if hidden_dim <= 0:
-            raise ValueError(f"Hidden dimension must be positive, got {hidden_dim}")
             
         self.daily_encoder = DailyEncoder(input_features, hidden_dim, dropout_rate)
         self.weekly_encoder = WeeklyEncoder(hidden_dim, dropout_rate=dropout_rate)
@@ -458,7 +426,7 @@ class HierForecastNet(nn.Module):
                 - week0_token (Tensor): Latest weekly token, shape (batch_size, hidden_dim)
                 - weekly_token (Tensor): Processed weekly token, shape (batch_size, hidden_dim)
         """
-        # Daily encoding: 14 days → daily prediction + 2 weekly tokens
+        # Daily encoding: 14 days -> daily prediction + 2 weekly tokens
         mu_daily, sigma_daily, week1_token, week0_token = self.daily_encoder(x14)
         
         # Weekly encoding: update weekly FIFO and get weekly prediction
@@ -469,7 +437,7 @@ class HierForecastNet(nn.Module):
         monthly_input = torch.cat([month_fifo[:, 1:], processed_weekly_token.unsqueeze(1)], dim=1)
         monthly_tokens = self.monthly_encoder(monthly_input)
         
-        # Monthly decoding: monthly token → 30-day sequence
+        # Monthly decoding: monthly token -> 30-day sequence
         mu_monthly_sequence, sigma_monthly_sequence = self.monthly_decoder(monthly_tokens)
         # Ensure the output is in the correct shape
         return mu_daily, sigma_daily, mu_weekly, sigma_weekly, mu_monthly_sequence, sigma_monthly_sequence
