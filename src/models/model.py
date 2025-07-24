@@ -44,20 +44,20 @@ class FeatureAttention(nn.Module):
 
     def __init__(self, in_dim: int) -> None:
         super().__init__()
-        self.score = nn.Linear(in_dim, 1)
+        self.score = nn.Linear(in_dim, in_dim)
         
     def forward(self, x: Tensor) -> Tensor:
         """
         Apply feature attention to input tensor.
         
         Args:
-            x (Tensor): Input tensor of shape (batch_size, seq_len, in_dim)
+            x (Tensor): Input tensor of shape (batch_size*seq_len, feature vector size)
             
-        Returns:
-            Tensor: Attention-weighted features of shape (batch_size, in_dim)
         """
-        attention_weights = torch.softmax(self.score(x), dim=1)
-        return (attention_weights * x).sum(dim=1)
+        features_logits = self.score(x)  # Shape: (batch_size*seq_len, in_dim)
+        attention_weights = torch.softmax(features_logits, dim=1)
+        
+        return (attention_weights * x)
 
 class ChunkAttentionPool(nn.Module):
     """
@@ -193,19 +193,16 @@ class DailyEncoder(nn.Module):
                 - week1_token (Tensor): Shape (batch_size, hidden_dim) - first week token
                 - week0_token (Tensor): Shape (batch_size, hidden_dim) - second week token
         """
-        batch_size, seq_len, num_features = x14.shape
-        if seq_len != daily_window:
-            raise ValueError(f"Expected sequence length {daily_window}, got {seq_len}")
+        batch_size, _, num_features = x14.shape
 
         # Apply feature attention for each day
+        # Here we are transforming the 3D tensor to a 2D one to feed it to the Feature Attention function
+        # The latter is expecting a 2D tensor of shape (batch_size * daily_window, num_features)
         daily_features = x14.view(batch_size * daily_window, num_features)
-        attention_weights = self.daily_feature_attention(daily_features).view(batch_size, daily_window, 1)
-
-        # Project features and apply attention weights
-        projected_features = self.feature_projection(x14) * attention_weights
+        features_weighted = self.daily_feature_attention(daily_features).view(batch_size, daily_window, num_features) #back to a 3D tensor
         
         # Process with LSTM
-        lstm_output, _ = self.lstm(projected_features)
+        lstm_output, _ = self.lstm(features_weighted)
         last_day = lstm_output[:, -1, :]  # Last output for daily prediction
         mu_daily = self.mu_daily_head(last_day).squeeze(1)
         sigma_daily = self.sigma_head(last_day).squeeze(1)  # Get σ for the last day

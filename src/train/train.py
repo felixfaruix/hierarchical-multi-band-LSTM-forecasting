@@ -29,7 +29,7 @@ from tqdm import tqdm
 import torch.distributions as td
 
 sys.path.append(str(Path(__file__).parent))
-from ..models.model import HierForecastNet, default_hidden_size
+from ..models.model import HierForecastNet, hidden_size
 from loss_functions import HierarchicalWRMSSE, gaussian_nll
 from torch.utils.data import DataLoader
 
@@ -58,7 +58,7 @@ class TrainingConfig:
     batch_size: int = 64
 
     # Model Configuration
-    hidden_size: int = default_hidden_size
+    hidden_size: int = hidden_size
     # Training Configuration
     epochs: int = 40
     learning_rate: float = 2e-4
