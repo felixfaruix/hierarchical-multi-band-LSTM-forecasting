@@ -24,7 +24,7 @@ import torch.nn.functional as F
 from torch import Tensor
 
 hidden_size = 128
-dropout_rate = 0.1
+dropout_rate = 0.01
 attention_heads = 4
 chunk_size = 7
 daily_window = 14
@@ -203,9 +203,9 @@ class DailyEncoder(nn.Module):
         
         # Process with LSTM
         lstm_output, _ = self.lstm(features_weighted)
-        last_day = lstm_output[:, -1, :]  # Last output for daily prediction
-        mu_daily = self.mu_daily_head(last_day).squeeze(1)
-        sigma_daily = self.sigma_head(last_day).squeeze(1)  # Get σ for the last day
+        last_state = lstm_output[:, -1, :]  # Last output for daily prediction (context vector)
+        mu_daily = self.mu_daily_head(last_state).squeeze(1)
+        sigma_daily = self.sigma_head(last_state).squeeze(1)  # Get σ for the last day
         # Generate weekly tokens using chunk attention pooling
         week1_token = self.chunk_pooler(lstm_output[:, 0:7])  # First 7 days
         week0_token = self.chunk_pooler(lstm_output[:, 7:14])  # Last 7 days
@@ -252,7 +252,6 @@ class WeeklyEncoder(nn.Module):
                 - weekly_prediction (Tensor): Shape (batch_size, 7) - prediction for next 7 days
                 - new_weekly_token (Tensor): Shape (batch_size, hidden_dim) - processed weekly token
         """
-        assert weekly_tokens.dim() == 3
 
         # Use last token as query for cross-attention
         query = weekly_tokens[:, -1:, :]  # Shape: (batch_size, 1, hidden_dim)
@@ -302,7 +301,6 @@ class MonthlyEncoder(nn.Module):
         Returns:
             Tensor: Final monthly token of shape (batch_size, hidden_dim)
         """
-        assert monthly_tokens.dim() == 3, "Expected 3D input (B, T, H)"
         
         # Use last token as query for cross-attention
         query_m = monthly_tokens[:, -1:, :]  # Shape: (batch_size, 1, hidden_dim)

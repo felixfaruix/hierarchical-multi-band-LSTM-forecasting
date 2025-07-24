@@ -97,9 +97,8 @@ class HierarchicalWRMSSE(nn.Module):
         # Compute RMSSE with epsilon for numerical stability
         # The epsilon prevents division by zero when naive_mse is very small
         rmsse = torch.sqrt(prediction_mse / (naive_mse + self.epsilon))
-        
         return rmsse
-        
+
     def forward(self, 
                 daily_pred: torch.Tensor, weekly_pred: torch.Tensor, monthly_pred: torch.Tensor,
                 daily_true: torch.Tensor, weekly_true: torch.Tensor, monthly_true: torch.Tensor,

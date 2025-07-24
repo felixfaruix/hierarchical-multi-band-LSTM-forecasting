@@ -107,7 +107,7 @@ def bootstrap_fifos(model: HierForecastNet, lookback: torch.Tensor) -> Tuple[tor
         lookback: Historical data (B, 365, F)
         
     Returns:
-        week_fifo: (B, 7, hidden_dim)
+        week_fifo: (B, 12, hidden_dim)
         month_fifo: (B, 12, hidden_dim)
     """
     was_training = model.training
@@ -121,7 +121,7 @@ def bootstrap_fifos(model: HierForecastNet, lookback: torch.Tensor) -> Tuple[tor
         _, _, wk0 = model.daily_encoder(x14)   # take most recent 7-day token
         week_tokens.append(wk0)
 
-    week_fifo = torch.stack(week_tokens[-7:], dim=1)      # (B,7,H)
+    week_fifo = torch.stack(week_tokens[-12:], dim=1)      # (B,12,H)
 
     # Generate processed weekly tokens → month FIFO
     month_tokens: List[torch.Tensor] = []
