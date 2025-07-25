@@ -55,7 +55,6 @@ def raw_to_processed(key, *, date_col, price_col, fname, start_date=start_date, 
     dataframe = dataframe[[date_col, price_col]].rename(columns={date_col: "date", price_col: key}) # Rename columns to 'date' and 'value'
     return dataframe.sort_values("date") # Sort by date 
 
-
 def build_calendar(start_date: str) -> pd.DataFrame:
     """
     Creates a DataFrame with a continuous range of daily dates from start_date to today.
@@ -71,7 +70,6 @@ def merge_all_data(calendar: pd.DataFrame, files: Dict[str, Dict]) -> pd.DataFra
         if cfg.get("interpolate", False):
             df = df.set_index("date").interpolate(method="linear").reset_index()
         calendar = calendar.merge(df, on="date", how="left")
-
     return calendar
 
 def event_window_flag(df: pd.DataFrame) -> pd.DataFrame:
@@ -104,8 +102,6 @@ def event_window_flag(df: pd.DataFrame) -> pd.DataFrame:
     # Adding flags to the DataFrame
     for col, val in flags.items():
         df[col] = val.astype(int)
-
-    print(f"Added {len(flags)} event-window columns to the DataFrame: {list(flags.keys())}")
     return df
 
 def fill_and_mask(calendar: pd.DataFrame, daily_columns: List[str], mask_columns: List[str]) -> pd.DataFrame:
@@ -140,8 +136,6 @@ def lag_returns(df: pd.DataFrame, columns: List[str], lags: Tuple[int, ...], ret
             safe_series = series.where(series > 0, np.nan)
             df[ret_col] = np.log(safe_series).diff()  # type: ignore[assignment]
             new_columns.append(ret_col)
-
-    print(f"Added {len(new_columns)} lag and return columns to the DataFrame: {new_columns}")
     return df, new_columns
 
 def rolling_stats_and_spread(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
@@ -175,22 +169,6 @@ def rolling_stats_and_spread(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]
 
     print(f"Added {len(new_columns)} rolling and spread columns to the DataFrame: {new_columns}")
     return df, new_columns
-
-def scale_features(df: pd.DataFrame, feature_cols: List[str]) -> Tuple[pd.DataFrame, MinMaxScaler]:
-    """
-    Scales selected feature columns to [0, 1] using MinMaxScaler, and returns the scaled DataFrame and the scaler.
-    It also adds 'date' and 'market_closed' columns to the scaled DataFrame. 
-    """
-    scaler = MinMaxScaler()
-    scaled_values = scaler.fit_transform(df[feature_cols])
-    # Create a new DataFrame with scaled values and appropriate column names
-    # The scaled columns will have "_scaled" suffix to differentiate them from original values
-    df_scaled = pd.DataFrame(scaled_values, columns=[f"{c}_scaled" for c in feature_cols], index=df.index)
-    # Include date, market_closed, and event flags in scaled output
-    meta_cols = ["date", "market_closed"] + [col for col in df.columns if col.startswith("event_")]
-    df_scaled = pd.concat([df[meta_cols], df_scaled], axis=1)
-
-    return df_scaled, scaler
 
 def save_outputs(df_raw: pd.DataFrame, df_scaled: pd.DataFrame, scaler: MinMaxScaler) -> None:
     """
@@ -239,10 +217,10 @@ if __name__ == "__main__":
     #    - Christmas to New Year, Easter, Driving season, Corn harvest
     merged = event_window_flag(merged)
     # 5. Add lagged features and returns
-    #    - Lagged levels and 1-day log returns for ethanol, corn, br
+    #    - Lagged levels and 1-day log returns for ethanol, corn, brent, fx
     merged, new_feature_cols = lag_returns(merged, columns=lags_list, lags=lags, return_bool=return_bool)
     # 6. Add rolling statistics and spreads
-    #    - 30-day rolling mean & std, 90-day z-score for ethanol
+    #    - 28-day rolling mean & std, 90-day z-score for ethanol
     merged, new_feature_cols_rolling = rolling_stats_and_spread(merged)
     # 7. Scaling the features
     # We extend the daily_columns with the new feature columns and rolling stats

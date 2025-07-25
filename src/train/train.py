@@ -278,30 +278,27 @@ class HierarchicalTrainer:
             running[k] /= num_batches # Average over batches
         # Update progress bar with average losses and gradient norms
         if self.cfg.verbose:
-            progress_bar.set_postfix({
-                "loss": running["total"],
-                "nll_daily": running["nll_daily"],
-                "nll_weekly": running["nll_weekly"],
-                "nll_monthly": running["nll_monthly"],
-            "rmsse_daily": running["rmsse_daily"],
-            "rmsse_weekly": running["rmsse_weekly"],
-            "rmsse_monthly": running["rmsse_monthly"],
-            "grad_daily": running["grad_daily"],
-            "grad_weekly": running["grad_weekly"],
-            "grad_monthly": running["grad_monthly"]
-        })
-        
+            progress_bar.set_postfix({"loss": running["total"],
+                                      "nll_daily": running["nll_daily"],
+                                      "nll_weekly": running["nll_weekly"],
+                                      "nll_monthly": running["nll_monthly"],
+                                      "rmsse_daily": running["rmsse_daily"],
+                                      "rmsse_weekly": running["rmsse_weekly"],
+                                      "rmsse_monthly": running["rmsse_monthly"],
+                                      "grad_daily": running["grad_daily"],
+                                      "grad_weekly": running["grad_weekly"],
+                                      "grad_monthly": running["grad_monthly"]})
         # store in history lists
-        self.grad_history["daily"]  .append(running["grad_daily"])
-        self.grad_history["weekly"] .append(running["grad_weekly"])
+        self.grad_history["daily"].append(running["grad_daily"])
+        self.grad_history["weekly"].append(running["grad_weekly"])
         self.grad_history["monthly"].append(running["grad_monthly"])
 
-        self.loss_history["nll_daily"]  .append(running["nll_daily"])
-        self.loss_history["nll_weekly"] .append(running["nll_weekly"])
+        self.loss_history["nll_daily"].append(running["nll_daily"])
+        self.loss_history["nll_weekly"].append(running["nll_weekly"])
         self.loss_history["nll_monthly"].append(running["nll_monthly"])
 
-        self.wrmsse_history["rmsse_daily"]  .append(running["rmsse_daily"])
-        self.wrmsse_history["rmsse_weekly"] .append(running["rmsse_weekly"])
+        self.wrmsse_history["rmsse_daily"].append(running["rmsse_daily"])
+        self.wrmsse_history["rmsse_weekly"].append(running["rmsse_weekly"])
         self.wrmsse_history["rmsse_monthly"].append(running["rmsse_monthly"])
         return running["total"]
 
@@ -310,7 +307,7 @@ class HierarchicalTrainer:
         out_dir = Path(self.cfg.checkpoint_dir) / "metrics"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        # 1. CSV (easy to open in Excel / Pandas)
+        # CSV
         df = pd.DataFrame({
             "epoch": list(range(1, epoch + 1)),
             "grad_daily":   self.grad_history["daily"],
@@ -325,13 +322,12 @@ class HierarchicalTrainer:
         })
         df.to_csv(out_dir / "metrics.csv", index=False)
 
-        # 2. JSON (lightweight, easy reload for plotting scripts)
+        # JSON
         with open(out_dir / "metrics.json", "w") as f:
-            json.dump({
-                "grad_history":   self.grad_history,
-                "loss_history":   self.loss_history,
-                "wrmsse_history": self.wrmsse_history
-            }, f, indent=2)
+            json.dump({"grad_history":   self.grad_history,
+                       "loss_history":   self.loss_history,
+                       "wrmsse_history": self.wrmsse_history}, 
+                       f, indent=2)
 
     def save_checkpoint(self, epoch: int, loss_val: float) -> None:
         """
@@ -378,7 +374,7 @@ class HierarchicalTrainer:
                 weekly_insample = lookback[:, -15:-1:7, -1]
                 monthly_insample = lookback[:, -365:, -1]
 
-                rmsse_daily, rmsse_weekly, rmsse_monthly = self.loss_fn(
+                total_wrmsse, rmsse_daily, rmsse_weekly, rmsse_monthly = self.loss_fn(
                     mu_daily, mu_weekly, mu_monthly,
                     daily_target, weekly_target, monthly_target,
                     daily_insample, weekly_insample, monthly_insample,
@@ -389,11 +385,7 @@ class HierarchicalTrainer:
                            self.cfg.weekly_weight * nll_weekly + 
                            self.cfg.monthly_weight * nll_monthly) / S
                 
-                loss_wr = (self.cfg.daily_weight * rmsse_daily + 
-                          self.cfg.weekly_weight * rmsse_weekly + 
-                          self.cfg.monthly_weight * rmsse_monthly) / S
-                
-                total_loss = loss_nll + self.cfg.lambda_wrmsse * loss_wr
+                total_loss = loss_nll + self.cfg.lambda_wrmsse * total_wrmsse
 
                 # Accumulate losses
                 running["total"] += total_loss.item()
@@ -411,7 +403,7 @@ class HierarchicalTrainer:
 
         return running
 
-    def fit(self, val_loader: Optional[DataLoader] = None, patience: int = 10) -> None:
+    def fit(self, val_loader: Optional[DataLoader] = None, patience: int = 5) -> None:
         """Train the model with optional validation and early stopping."""
         self.best_loss = float("inf")
         best_path = Path(self.cfg.checkpoint_dir) / "best.pth"
