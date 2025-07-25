@@ -18,7 +18,7 @@ from dateutil.easter import easter
 
 verbose = False
 file_root = Path(__file__).resolve().parent
-project_root = file_root.parent
+project_root = file_root.parent.parent
 raw_data_path: Path = project_root / "raw_data"
 processed_data: Path = project_root / "processed_data"
 processed_data.mkdir(exist_ok=True)
@@ -50,7 +50,8 @@ def raw_to_processed(key, *, date_col, price_col, fname, start_date=start_date, 
     """
     path = (raw_data_path / fname)
     dataframe: pd.DataFrame = pd.read_csv(path) # Read the CSV file
-    dataframe[date_col] = pd.to_datetime(dataframe[date_col], format=date_format, errors="coerce") # Convert date column to datetime
+    dataframe[date_col] = pd.to_datetime(dataframe[date_col], format=date_format, errors="coerce")
+    dataframe = dataframe.dropna(subset=[date_col])  # Convert date column to datetime
     dataframe = dataframe[dataframe[date_col] >= pd.to_datetime(start_date)] # Filter by start date
     dataframe = dataframe[[date_col, price_col]].rename(columns={date_col: "date", price_col: key}) # Rename columns to 'date' and 'value'
     return dataframe.sort_values("date") # Sort by date 
@@ -243,6 +244,7 @@ if __name__ == "__main__":
     merged_scaled = pd.concat([merged[meta_cols], merged_scaled], axis=1)
     # 8. Save the outputs
     save_outputs(merged, merged_scaled, scaler)
+    
     if verbose:
         summarize(merged_scaled)
         
