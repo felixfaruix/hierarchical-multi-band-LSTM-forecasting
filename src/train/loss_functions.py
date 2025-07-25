@@ -48,24 +48,14 @@ class HierarchicalWRMSSE(nn.Module):
     def __init__(self, daily_weight: float = 0.1, weekly_weight: float = 0.3, 
                  monthly_weight: float = 0.6, epsilon: float = 1e-8) -> None:
         super().__init__()
-        
-        if daily_weight < 0 or weekly_weight < 0 or monthly_weight < 0:
-            raise ValueError("All weights must be non-negative")
-        if daily_weight + weekly_weight + monthly_weight == 0:
-            raise ValueError("At least one weight must be positive")
-        
+        # Store weights for each scale
         # Normalize weights to ensure they sum to 1
         total_weight = daily_weight + weekly_weight + monthly_weight
         self.daily_weight = daily_weight / total_weight
         self.weekly_weight = weekly_weight / total_weight
         self.monthly_weight = monthly_weight / total_weight
         self.epsilon = epsilon
-        
-        print(f"HierarchicalWRMSSE initialized with weights:")
-        print(f"  Daily: {self.daily_weight:.3f}")
-        print(f"  Weekly: {self.weekly_weight:.3f}")
-        print(f"  Monthly: {self.monthly_weight:.3f}")
-        
+
     def _compute_rmsse(self, predictions: torch.Tensor, targets: torch.Tensor, 
                       insample_data: torch.Tensor) -> torch.Tensor:
         """
@@ -99,8 +89,7 @@ class HierarchicalWRMSSE(nn.Module):
         rmsse = torch.sqrt(prediction_mse / (naive_mse + self.epsilon))
         return rmsse
 
-    def forward(self, 
-                daily_pred: torch.Tensor, weekly_pred: torch.Tensor, monthly_pred: torch.Tensor,
+    def forward(self, daily_pred: torch.Tensor, weekly_pred: torch.Tensor, monthly_pred: torch.Tensor,
                 daily_true: torch.Tensor, weekly_true: torch.Tensor, monthly_true: torch.Tensor,
                 daily_insample: torch.Tensor, weekly_insample: torch.Tensor, monthly_insample: torch.Tensor,
                 return_individual_losses: bool = False) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]]:

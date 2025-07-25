@@ -38,18 +38,6 @@ from torch.utils.data import DataLoader
 class TrainingConfig:
     """Configuration class for hierarchical forecasting training.
     This class encapsulates all hyperparameters and settings required for training the HierForecastNet model.
-    It can be easily extended or modified to adapt to different training scenarios.
-    Attributes:
-        data_file (str): Path to the preprocessed data file.
-        batch_size (int): Number of samples per batch.
-        hidden_size (int): Size of the hidden layers in the model.
-        epochs (int): Number of training epochs.
-        learning_rate (float): Learning rate for the optimizer.
-        gradient_clip_norm (float): Maximum norm for gradient clipping.
-        daily_weight (float): Weight for daily prediction loss in hierarchical loss function.
-        weekly_weight (float): Weight for weekly prediction loss in hierarchical loss function.
-        monthly_weight (float): Weight for monthly prediction loss in hierarchical loss function.
-        seed (int): Random seed for reproducibility.
     """
     # Model and training parameters
     target_variable: str = "ethanol_scaled"
@@ -60,7 +48,7 @@ class TrainingConfig:
     # Model Configuration
     hidden_size: int = hidden_size
     # Training Configuration
-    epochs: int = 40
+    epochs: int = 10
     learning_rate: float = 2e-4
     gradient_clip_norm: float = 1.0
     # Loss Configuration
@@ -112,104 +100,86 @@ def bootstrap_fifos(model: HierForecastNet, lookback: torch.Tensor) -> Tuple[tor
     """
     was_training = model.training
     model.eval()
+    
     B, _, _ = lookback.shape
     week_tokens: List[torch.Tensor] = []
 
-    # Generate weekly tokens from sliding 14-day windows
-    for start in range(0, 365-13, 7):
-        x14 = lookback[:, start:start+14, :]
-        _, _, wk0 = model.daily_encoder(x14)   # take most recent 7-day token
-        week_tokens.append(wk0)
+    # Creating all possible weekly tokens using stride 7
+    for start in range(0, 365 - 13, 7):  # (365 - 14 + 1) // 7 ≈ 50 windows
+        x14 = lookback[:, start:start+14, :]  # (B, 14, F)
+        _, _, wk_tok = model.daily_encoder(x14)  # (B, H)
+        week_tokens.append(wk_tok)  # (B, T_w, H), maybe (B, 50, H)
 
-    week_fifo = torch.stack(week_tokens[-12:], dim=1)      # (B,12,H)
+    week_fifo = torch.stack(week_tokens, dim=1)
 
-    # Generate processed weekly tokens → month FIFO
+    # Sliding over the weekly tokens to build monthly tokens
     month_tokens: List[torch.Tensor] = []
-    wk_fifo = week_fifo.clone()
-    for _ in range(12):
-        _, wk_tok = model.weekly_encoder(wk_fifo)
-        month_tokens.append(wk_tok)
-        wk_fifo = torch.cat([wk_fifo[:,1:], wk_tok.unsqueeze(1)], 1)
+    for i in range(week_fifo.shape[1] - 11): # 12 weekly tokens slide 
+        wk_window = week_fifo[:, i:i+12, :] # (B, 12, H)
+        _, _, month_tok = model.weekly_encoder(wk_window)  # grab only the token
+        month_tokens.append(month_tok)
 
-    month_fifo = torch.stack(month_tokens[-12:], dim=1)   # (B,12,H)
+    month_fifo = torch.stack(month_tokens[-12:], dim=1)
     model.train(was_training)  # Restore training mode if it was on
-    # Return the FIFOs
-    return week_fifo, month_fifo
+        # Return the FIFOs
+
+    last_week_fifo  = week_fifo[:,  -12:, :]    # (B,12,H)
+    last_month_fifo = month_fifo[:, -12:, :]   # (B,12,H)
+
+    return last_week_fifo, last_month_fifo
 
 class HierarchicalTrainer:
     """Modular trainer that receives its *dataloaders* from the caller."""
 
-    def __init__(
-        self,
-        config: TrainingConfig,
-        train_loader: DataLoader,
-        model: Optional[HierForecastNet] = None,
-        optimizer: Optional[torch.optim.Optimizer] = None,
-    ) -> None:
+    def __init__(self, config: TrainingConfig, 
+                 train_loader: DataLoader,
+                 model: Optional[HierForecastNet] = None,
+                 optimizer: Optional[torch.optim.Optimizer] = None) -> None:
         """
         Initialize the trainer with configuration, data loaders, model, and optimizer.
         """
         self.cfg = config
         self.device = get_device(config.device)
-        set_random_seeds(config.seed)
-
-        if train_loader is None:
-            raise ValueError("train_loader must be provided")   
-
         self.train_loader = train_loader
-
+        set_random_seeds(config.seed)
         # Model
         # If no model is provided, infer the number of features from the first batch
         if model is None:
-            # Infer *F* (feature‑dim) from a dataset sample: (lookback, daily, ...)
-            sample = train_loader.dataset[0][0]  # -> torch.Size([365, F])
+            # Taking F from a dataset sample
+            sample = train_loader.dataset[0][0]  # torch.Size([365, F])
             num_features = sample.shape[-1]
             model = HierForecastNet(num_features, config.hidden_size)
         self.model = model.to(self.device)
         # Loss function
-        # We are passing the wights here becasue HierarchicalWRMSSE expects them 
+        # We are passing the weights here because HierarchicalWRMSSE expects them
         # to be set at initialization since they don't change during training
-        # This is a hierarchical loss function that combines NLL and RMSSE for daily, weekly, and monthly predictions
+        # This will be hierarchical loss function that combines NLL and RMSSE for daily, weekly, and monthly predictions
         self.loss_fn = HierarchicalWRMSSE(config.daily_weight, config.weekly_weight, 
                                           config.monthly_weight).to(self.device) 
         # Optimizer
-        self.optim = (optimizer if optimizer is not None
+        self.optimizer = (optimizer if optimizer is not None
             else torch.optim.AdamW(self.model.parameters(), lr=config.learning_rate))
         # Training state
         self.current_epoch = 0
         self.best_loss = float('inf')
-        self.grad_history = {
-            "daily": [],
-            "weekly": [],
-            "monthly": []
-        }
-        self.loss_history = {
-            "nll_daily": [],
-            "nll_weekly": [],
-            "nll_monthly": []
-        }
-        self.wrmsse_history = {
-            "rmsse_daily": [],
-            "rmsse_weekly": [],
-            "rmsse_monthly": []
-        }
+        self.grad_history = {"daily": [], "weekly": [], "monthly": []}
+        self.loss_history = {"nll_daily": [], "nll_weekly": [], "nll_monthly": []}
+        self.wrmsse_history = {"rmsse_daily": [], "rmsse_weekly": [], "rmsse_monthly": []}
 
     def train_epoch(self) -> Any:
         """Train the model for one epoch.
-        If logs_losses is True, return a dictionary with losses and gradients norms
-        Otherwise, return the average loss for the epoch.
-
         """
-        self.model.train() # Set model to training mode
+        self.model.train()
         epoch_loss = 0.0
         running = {"total": 0.0, "nll_daily": 0.0, "nll_weekly": 0.0, "nll_monthly": 0.0,
-        "rmsse_daily": 0.0, "rmsse_weekly": 0.0, "rmsse_monthly": 0.0,
-        "grad_daily": 0.0, "grad_weekly": 0.0, "grad_monthly": 0.0}
-
+                   "rmsse_daily": 0.0, "rmsse_weekly": 0.0, "rmsse_monthly": 0.0,
+                   "grad_daily": 0.0, "grad_weekly": 0.0, "grad_monthly": 0.0}
+        # Progress bar for training
+        # tqdm is used to show the progress of the training epoch
         progress_bar = tqdm(self.train_loader,
-            desc=f"Epoch {self.current_epoch + 1}/{self.cfg.epochs}",
-            disable=not self.cfg.verbose,)
-        # Iterate over batches
+                            desc=f"Epoch {self.current_epoch + 1}/{self.cfg.epochs}",
+                            disable=not self.cfg.verbose)
+        # Iterating over batches
         for lookback, daily_window, daily_target, weekly_target, monthly_target in progress_bar:
             # Move data to device
             # We do this to ensure that all tensors are on the same device
@@ -253,12 +223,13 @@ class HierarchicalTrainer:
             loss_wr = (self.cfg.daily_weight * rmsse_daily + 
                        self.cfg.weekly_weight * rmsse_weekly + 
                        self.cfg.monthly_weight * rmsse_monthly) / S
+            
             # Total loss is a combination of NLL and WRMSSE
             # This is the final loss that will be used for backpropagation
             # It combines the negative log likelihood and the hierarchical WRMSSE
             total_loss = loss_nll + self.cfg.lambda_wrmsse * loss_wr
             # Backward pass
-            self.optim.zero_grad()
+            self.optimizer.zero_grad()
             total_loss.backward()
             # Log losses and gradients
             daily_grad_norms   = []
@@ -299,7 +270,7 @@ class HierarchicalTrainer:
 
             # Clip gradients to prevent exploding gradients and to stabilize training
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.cfg.gradient_clip_norm)
-            self.optim.step()
+            self.optimizer.step()
 
         num_batches = len(self.train_loader)
 
