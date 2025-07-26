@@ -175,4 +175,4 @@ def gaussian_nll(mu: torch.Tensor, sigma: torch.Tensor, target: torch.Tensor) ->
         torch.Tensor: Mean NLL loss
     """
     dist = td.Normal(mu, sigma)
-    return -dist.log_prob(target).mean()
+    return -dist.log_prob(target)

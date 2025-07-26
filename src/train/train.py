@@ -44,25 +44,32 @@ class TrainingConfig:
     # Data Configuration
     data_file: str = "processed_data/calendar_scaled.parquet"
     batch_size: int = 64
+    weight_decay: float = 1e-5
 
     # Model Configuration
     hidden_size: int = hidden_size
+
     # Training Configuration
     epochs: int = 10
     learning_rate: float = 2e-4
     gradient_clip_norm: float = 1.0
+
     # Loss Configuration
     daily_weight: float = 0.1
     weekly_weight: float = 0.3
     monthly_weight: float = 0.6
     lambda_wrmsse: float = 0.2   
+
     # Reproducibility Configuration
     seed: int = 42
+
     # Checkpoint Configuration
     checkpoint_dir: str = "checkpoints"
     save_every_epochs: int = 5
+
     # Device Configuration
     device: Optional[str] = None
+
     # Logging Configuration
     verbose: bool = True
 
@@ -107,7 +114,7 @@ def bootstrap_fifos(model: HierForecastNet, lookback: torch.Tensor) -> Tuple[tor
     # Creating all possible weekly tokens using stride 7
     for start in range(0, 365 - 13, 7):  # (365 - 14 + 1) // 7 ≈ 50 windows
         x14 = lookback[:, start:start+14, :]  # (B, 14, F)
-        _, _, wk_tok = model.daily_encoder(x14)  # (B, H)
+        _, _, _,wk_tok = model.daily_encoder(x14)  # (B, H)
         week_tokens.append(wk_tok)  # (B, T_w, H), maybe (B, 50, H)
 
     week_fifo = torch.stack(week_tokens, dim=1)
@@ -158,7 +165,7 @@ class HierarchicalTrainer:
                                           config.monthly_weight).to(self.device) 
         # Optimizer
         self.optimizer = (optimizer if optimizer is not None
-            else torch.optim.AdamW(self.model.parameters(), lr=config.learning_rate))
+            else torch.optim.AdamW(self.model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay))
         # Training state
         self.current_epoch = 0
         self.best_loss = float('inf')
@@ -197,7 +204,7 @@ class HierarchicalTrainer:
             mu_daily, sigma_daily, mu_weekly, sigma_weekly, mu_monthly, sigma_monthly = self.model(daily_window, weekly_fifo, monthly_fifo)
             # Compute NLL for each scale
             nll_daily = gaussian_nll(mu_daily, sigma_daily, daily_target)
-            nll_weekly = gaussian_nll(mu_weekly, sigma_weekly, weekly_target)
+            nll_weekly = gaussian_nll(mu_weekly, sigma_weekly, weekly_target).mean()
             nll_monthly = gaussian_nll(mu_monthly, sigma_monthly, monthly_target)
 
             # Prepare insample data for loss calculation

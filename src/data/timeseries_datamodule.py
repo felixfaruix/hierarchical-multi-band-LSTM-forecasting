@@ -22,8 +22,6 @@ def load_parquet(obj: Union[str, Path, pd.DataFrame]) -> pd.DataFrame:
     if isinstance(obj, pd.DataFrame):
         return obj.copy()
     obj = Path(obj)
-    if not obj.exists():
-        raise FileNotFoundError(obj)
     return pd.read_parquet(obj)
 
 def merge_calendars(calendar_scaled: Union[str, Path, pd.DataFrame], cyclical_calendar: Union[str, Path, pd.DataFrame] = "cyclical_calendar.parquet",*, 

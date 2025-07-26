@@ -172,7 +172,8 @@ class DailyEncoder(nn.Module):
     """
     def __init__(self, input_features: int, hidden_dim: int, dropout_rate: float = dropout_rate) -> None:
         super().__init__()
-            
+        
+        self.hidden_dim = hidden_dim
         self.feature_projection = nn.Linear(input_features, hidden_dim)
         self.daily_feature_attention = FeatureAttention(input_features)
         self.lstm = nn.LSTM(hidden_dim, hidden_dim, batch_first=True)
@@ -198,11 +199,11 @@ class DailyEncoder(nn.Module):
         # Apply feature attention for each day
         # Here we are transforming the 3D tensor to a 2D one to feed it to the Feature Attention function
         # The latter is expecting a 2D tensor of shape (batch_size * daily_window, num_features)
-        daily_features = x14.view(batch_size * daily_window, num_features)
+        daily_features = x14.reshape(batch_size * daily_window, num_features)
         features_weighted = self.daily_feature_attention(daily_features).view(batch_size, daily_window, num_features) #back to a 3D tensor
-        
+        lstm_input = self.feature_projection(features_weighted)  # Shape: (batch_size, daily_window, hidden_dim)
         # Process with LSTM
-        lstm_output, _ = self.lstm(features_weighted)
+        lstm_output, _ = self.lstm(lstm_input)
         last_state = lstm_output[:, -1, :]  # Last output for daily prediction (context vector)
         mu_daily = self.mu_daily_head(last_state).squeeze(1)
         sigma_daily = self.sigma_head(last_state).squeeze(1)  # Get σ for the last day
@@ -238,7 +239,7 @@ class WeeklyEncoder(nn.Module):
         self.feed_forward = PreNormRes(hidden_dim, GLUffn(hidden_dim, dropout_rate), dropout_rate)
         # Weekly prediction head to generate a 7-day vector from the processed weekly token
         self.mu_weekly_head = nn.Linear(hidden_dim, chunk_size) # 7-day prediction
-        self.sigma_w_head = nn.Sequential(nn.Linear(hidden_dim, 1), nn.Softplus())
+        self.sigma_w_head = nn.Sequential(nn.Linear(hidden_dim, chunk_size), nn.Softplus())
 
     def forward(self, weekly_tokens: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         """
@@ -264,8 +265,8 @@ class WeeklyEncoder(nn.Module):
         # Concatenating with original tokens and process with LSTM
         lstm_input = torch.cat([weekly_tokens, enhanced_q], dim=1)
         lstm_output, _ = self.lstm(lstm_input)
-        mu_weekly = self.mu_weekly_head(lstm_output[:, -1]).squeeze(1)
-        sigma_weekly = self.sigma_w_head(lstm_output[:, -1]).squeeze(1)
+        mu_weekly = self.mu_weekly_head(lstm_output[:, -1])
+        sigma_weekly = self.sigma_w_head(lstm_output[:, -1])
         # Get the last token and apply feed-forward
         last_token = self.feed_forward(lstm_output[:, -1])
 
@@ -422,8 +423,8 @@ class HierForecastNet(nn.Module):
                 - weekly_token (Tensor): Processed weekly token, shape (batch_size, hidden_dim)
         """
         # Daily encoding: 14 days -> daily prediction + 2 weekly tokens
-        mu_daily, sigma_daily, week1_token, week0_token = self.daily_encoder(x14)
-        
+        mu_daily, sigma_daily, _, week0_token = self.daily_encoder(x14)
+
         # Weekly encoding: update weekly FIFO and get weekly prediction
         weekly_input = torch.cat([week_fifo[:, 1:], week0_token.unsqueeze(1)], dim=1)
         mu_weekly, sigma_weekly, processed_weekly_token = self.weekly_encoder(weekly_input)

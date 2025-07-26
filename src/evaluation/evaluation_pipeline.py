@@ -47,8 +47,6 @@ class HierarchicalReconciliation:
     def fit(self, S: np.ndarray, y_train_levels: Dict[str, np.ndarray]) -> None:
         """Fit MinT reconciliation."""  
         # Simplified implementation - in practice you'd format data properly
-        if MinTrace is None:
-            raise ImportError("MinTrace is not available. Please install hierarchicalforecast.")
         self.reconciler = MinTrace(method='mint_shrink')
         self.fitted = True
     
@@ -195,7 +193,7 @@ class HierarchicalEvaluationFramework:
         """Evaluate baseline models for a specific time scale."""
         
         evaluation_results = {}
-        insample_reference = training_data[-min(365, len(training_data)):]
+        insample_reference = training_data[-min(365, len(training_data)):] # why not using rolling origin ????????
         seasonal_periods = {'daily': 7, 'weekly': 4, 'monthly': 12}
         seasonal_period = seasonal_periods.get(scale, 1)
         
